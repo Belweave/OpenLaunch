@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="OpenLaunch">
+  <rect width="64" height="64" rx="14" fill="#fff"/>
+  <path d="M12 42V20L32 8l20 12v22l-7 5V24L32 16 19 24v23z" fill="#111a78"/>
+  <path d="M32 19c5 7 6 15 6 24l-6-4-6 4c0-9 1-17 6-24z" fill="#ff5a1f"/>
+  <path d="M28 43l-7 10h8l3-7 3 7h8l-7-10-4 3z" fill="#111a78"/>
+</svg>

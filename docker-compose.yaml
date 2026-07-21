@@ -1,0 +1,32 @@
+services:
+  ollama:
+    volumes:
+      - ollama:/root/.ollama
+    container_name: ollama
+    pull_policy: always
+    tty: true
+    restart: unless-stopped
+    image: ollama/ollama:${OLLAMA_DOCKER_TAG-latest}
+
+  openlaunch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/belweave/openlaunch:${OPENLAUNCH_DOCKER_TAG-main}
+    container_name: openlaunch
+    volumes:
+      - openlaunch:/app/backend/data
+    depends_on:
+      - ollama
+    ports:
+      - ${OPENLAUNCH_PORT-3000}:8080
+    environment:
+      - 'OLLAMA_BASE_URL=http://ollama:11434'
+      - 'OPENLAUNCH_SECRET_KEY='
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+
+volumes:
+  ollama: {}
+  openlaunch: {}
