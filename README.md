@@ -4,7 +4,7 @@ OpenLaunch is an open-source, self-hosted AI workspace from Belweave. It provide
 
 ## Features
 
-- Connect to Ollama and OpenAI-compatible APIs
+- Connect to Ollama, the Anthropic API, and OpenAI-compatible APIs
 - Chat with multiple models from one responsive interface
 - Use documents and web content with retrieval-augmented generation (RAG)
 - Add custom Python functions and tools
