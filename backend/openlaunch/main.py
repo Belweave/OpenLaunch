@@ -2046,11 +2046,7 @@ async def get_app_config(request: Request):
 
 @app.get('/api/config/logo')
 async def get_app_logo(request: Request):
-    cache_control = (
-        'public, max-age=31536000, immutable'
-        if request.query_params.get('v')
-        else 'no-cache'
-    )
+    cache_control = 'public, max-age=31536000, immutable' if request.query_params.get('v') else 'no-cache'
     logo_data_uri = await Config.get('ui.logo', '')
     if logo_data_uri and logo_data_uri.startswith('data:image/'):
         try:
