@@ -82,6 +82,42 @@ export const updateAdminConfig = async (token: string, body: object) => {
 	return res;
 };
 
+export const uploadAdminLogo = async (token: string, file: File) => {
+	const data = new FormData();
+	data.append('file', file);
+
+	const res = await fetch(`${OPENLAUNCH_API_BASE_URL}/auths/admin/logo`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${token}`
+		},
+		body: data
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw error.detail ?? 'Failed to upload logo';
+	}
+
+	return res.json();
+};
+
+export const resetAdminLogo = async (token: string) => {
+	const res = await fetch(`${OPENLAUNCH_API_BASE_URL}/auths/admin/logo`, {
+		method: 'DELETE',
+		headers: {
+			Authorization: `Bearer ${token}`
+		}
+	});
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({}));
+		throw error.detail ?? 'Failed to reset logo';
+	}
+
+	return res.json();
+};
+
 export const getSessionUser = async (token: string) => {
 	let error = null;
 

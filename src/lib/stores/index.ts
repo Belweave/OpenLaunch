@@ -282,6 +282,8 @@ type Config = {
 	status: boolean;
 	name: string;
 	version: string;
+	logo_url?: string;
+	custom_logo?: boolean;
 	default_locale: string;
 	default_models: string;
 	default_prompt_suggestions: PromptSuggestion[];

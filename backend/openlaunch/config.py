@@ -2982,6 +2982,8 @@ DEFAULT_CONFIG = {
     'ui.pending_user_overlay_title': PENDING_USER_OVERLAY_TITLE,
     'ui.pending_user_overlay_content': PENDING_USER_OVERLAY_CONTENT,
     'ui.watermark': RESPONSE_WATERMARK,
+    'ui.logo': '',
+    'ui.logo_updated_at': 0,
     'user.permissions': USER_PERMISSIONS,
     'folders.enable': ENABLE_FOLDERS,
     'folders.max_file_count': FOLDER_MAX_FILE_COUNT,

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { OPENLAUNCH_BASE_URL } from '$lib/constants';
-	import { settings, playingNotificationSound, isLastActiveTab } from '$lib/stores';
+	import { config, settings, playingNotificationSound, isLastActiveTab } from '$lib/stores';
 	import DOMPurify from 'dompurify';
 	import { marked } from 'marked';
 
@@ -109,7 +109,11 @@
 	</button>
 
 	<div class="shrink-0 self-top -translate-y-0.5">
-		<img src="{OPENLAUNCH_BASE_URL}/static/favicon.png" alt="favicon" class="size-6 rounded-full" />
+		<img
+			src={$config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`}
+			alt="favicon"
+			class="size-6 rounded-full"
+		/>
 	</div>
 
 	<div>

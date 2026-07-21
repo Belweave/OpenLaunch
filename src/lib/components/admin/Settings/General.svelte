@@ -3,7 +3,12 @@
 	import { v4 as uuidv4 } from 'uuid';
 
 	import { getBackendConfig, getVersionUpdates } from '$lib/apis';
-	import { getAdminConfig, updateAdminConfig } from '$lib/apis/auths';
+	import {
+		getAdminConfig,
+		resetAdminLogo,
+		updateAdminConfig,
+		uploadAdminLogo
+	} from '$lib/apis/auths';
 	import { getBanners, setBanners } from '$lib/apis/configs';
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -28,6 +33,10 @@
 	};
 
 	let adminConfig = null;
+	let logoInputElement: HTMLInputElement;
+	let logoUploading = false;
+	let logoUrl = '/api/config/logo';
+	let hasCustomLogo = false;
 
 	let banners: Banner[] = [];
 
@@ -64,8 +73,67 @@
 		}
 	};
 
+	const selectLogo = () => {
+		logoInputElement?.click();
+	};
+
+	const updateLogo = async (file: File | undefined) => {
+		if (!file) return;
+
+		if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+			toast.error($i18n.t('Logo must be a PNG, JPEG, or WebP image'));
+			logoInputElement.value = '';
+			return;
+		}
+		if (file.size > 2 * 1024 * 1024) {
+			toast.error($i18n.t('Logo image must be 2 MB or smaller'));
+			logoInputElement.value = '';
+			return;
+		}
+
+		try {
+			const image = await createImageBitmap(file);
+			const isSquare = image.width === image.height;
+			image.close();
+			if (!isSquare) {
+				toast.error($i18n.t('Logo image must have equal width and height'));
+				logoInputElement.value = '';
+				return;
+			}
+
+			logoUploading = true;
+			const result = await uploadAdminLogo(localStorage.token, file);
+			logoUrl = result.logo_url;
+			hasCustomLogo = true;
+			await config.set(await getBackendConfig());
+			toast.success($i18n.t('Logo updated successfully'));
+		} catch (error) {
+			toast.error(typeof error === 'string' ? error : $i18n.t('Failed to update logo'));
+		} finally {
+			logoUploading = false;
+			logoInputElement.value = '';
+		}
+	};
+
+	const useDefaultLogo = async () => {
+		try {
+			logoUploading = true;
+			const result = await resetAdminLogo(localStorage.token);
+			logoUrl = result.logo_url;
+			hasCustomLogo = false;
+			await config.set(await getBackendConfig());
+			toast.success($i18n.t('Default logo restored'));
+		} catch (error) {
+			toast.error(typeof error === 'string' ? error : $i18n.t('Failed to reset logo'));
+		} finally {
+			logoUploading = false;
+		}
+	};
+
 	onMount(async () => {
 		adminConfig = await getAdminConfig(localStorage.token);
+		logoUrl = $config?.logo_url ?? '/api/config/logo';
+		hasCustomLogo = $config?.custom_logo ?? false;
 
 		banners = [...$_banners];
 	});
@@ -84,6 +152,52 @@
 					<div class=" mt-0.5 mb-2.5 text-base font-medium">{$i18n.t('General')}</div>
 
 					<hr class=" border-gray-100/30 dark:border-gray-850/30 my-2" />
+
+					<div class="mb-4">
+						<div class="mb-2 text-xs font-medium">{$i18n.t('Application Logo')}</div>
+						<div class="flex items-center gap-3">
+							<img
+								src={logoUrl}
+								class="size-14 shrink-0 rounded-xl border border-gray-100 object-cover dark:border-gray-800"
+								alt={$i18n.t('Application logo preview')}
+							/>
+
+							<div class="flex min-w-0 flex-col gap-2">
+								<div class="text-xs text-gray-500 dark:text-gray-400">
+									{$i18n.t(
+										'Upload a PNG, JPEG, or WebP image with equal width and height. Maximum size: 2 MB.'
+									)}
+								</div>
+								<div class="flex gap-2">
+									<input
+										bind:this={logoInputElement}
+										type="file"
+										accept="image/png,image/jpeg,image/webp"
+										class="hidden"
+										on:change={(event) => updateLogo(event.currentTarget.files?.[0])}
+									/>
+									<button
+										type="button"
+										class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium transition hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-850 dark:hover:bg-gray-800"
+										disabled={logoUploading}
+										on:click={selectLogo}
+									>
+										{logoUploading ? $i18n.t('Updating...') : $i18n.t('Upload logo')}
+									</button>
+									{#if hasCustomLogo}
+										<button
+											type="button"
+											class="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-500 transition hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-850"
+											disabled={logoUploading}
+											on:click={useDefaultLogo}
+										>
+											{$i18n.t('Use default')}
+										</button>
+									{/if}
+								</div>
+							</div>
+						</div>
+					</div>
 
 					<div class="mb-2.5">
 						<div class=" mb-1 text-xs font-medium flex space-x-2 items-center">
