@@ -846,7 +846,7 @@
 					>
 						<div class=" self-center flex items-center justify-center size-9">
 							<img
-								src="{OPENLAUNCH_BASE_URL}/static/favicon.png"
+								src={$config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`}
 								class="sidebar-new-chat-icon size-6 rounded-full group-hover:hidden"
 								alt=""
 							/>
@@ -984,7 +984,7 @@
 						<UserMenu
 							role={$user?.role}
 							profile={$config?.features?.enable_user_status ?? true}
-							showActiveUsers={false}
+							help={true}
 							on:show={(e) => {
 								if (e.detail === 'archived-chat') {
 									showArchivedChats.set(true);
@@ -1057,7 +1057,7 @@
 				>
 					<img
 						crossorigin="anonymous"
-						src="{OPENLAUNCH_BASE_URL}/static/favicon.png"
+						src={$config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`}
 						class="sidebar-new-chat-icon size-6 rounded-full"
 						alt=""
 					/>
@@ -1611,7 +1611,7 @@
 						<UserMenu
 							role={$user?.role}
 							profile={$config?.features?.enable_user_status ?? true}
-							showActiveUsers={false}
+							help={true}
 							className="w-[calc(var(--sidebar-width)-1rem)]"
 							on:show={(e) => {
 								if (e.detail === 'archived-chat') {

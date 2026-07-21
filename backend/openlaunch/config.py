@@ -2363,10 +2363,7 @@ API_KEYS_ALLOWED_ENDPOINTS = os.getenv('API_KEYS_ALLOWED_ENDPOINTS', os.getenv('
 JWT_EXPIRES_IN = os.getenv('JWT_EXPIRES_IN', '4w')
 
 if JWT_EXPIRES_IN == '-1':
-    log.warning(
-        "⚠️  SECURITY WARNING: JWT_EXPIRES_IN is set to '-1'\n"
-        '    See: https://github.com/belweave/openlaunch'
-    )
+    log.warning("⚠️  SECURITY WARNING: JWT_EXPIRES_IN is set to '-1'\n    See: https://github.com/belweave/openlaunch")
 
 ####################################
 # OAuth config
@@ -2982,6 +2979,8 @@ DEFAULT_CONFIG = {
     'ui.pending_user_overlay_title': PENDING_USER_OVERLAY_TITLE,
     'ui.pending_user_overlay_content': PENDING_USER_OVERLAY_CONTENT,
     'ui.watermark': RESPONSE_WATERMARK,
+    'ui.logo': '',
+    'ui.logo_updated_at': 0,
     'user.permissions': USER_PERMISSIONS,
     'folders.enable': ENABLE_FOLDERS,
     'folders.max_file_count': FOLDER_MAX_FILE_COUNT,

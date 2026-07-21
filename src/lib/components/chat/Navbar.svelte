@@ -1,22 +1,17 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
-	import { toast } from 'svelte-sonner';
-
 	import {
-		OPENLAUNCH_NAME,
 		banners,
 		chatId,
 		config,
 		mobile,
 		settings,
-		showArchivedChats,
 		showControls,
 		showSidebar,
 		temporaryChatEnabled,
 		user
 	} from '$lib/stores';
 
-	import { slide } from 'svelte/transition';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 
@@ -24,10 +19,6 @@
 	import ModelSelector from '../chat/ModelSelector.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import Menu from '$lib/components/layout/Navbar/Menu.svelte';
-	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
-	import AdjustmentsHorizontal from '../icons/AdjustmentsHorizontal.svelte';
-
-	import PencilSquare from '../icons/PencilSquare.svelte';
 	import Banner from '../common/Banner.svelte';
 	import Sidebar from '../icons/Sidebar.svelte';
 
@@ -38,7 +29,6 @@
 	import ChatPlus from '../icons/ChatPlus.svelte';
 	import ChatCheck from '../icons/ChatCheck.svelte';
 	import Knobs from '../icons/Knobs.svelte';
-	import { OPENLAUNCH_API_BASE_URL } from '$lib/constants';
 
 	const i18n = getContext('i18n');
 
@@ -231,50 +221,6 @@
 							</button>
 						</Menu>
 					{/if}
-
-					{#if $user?.role === 'admin' || ($user?.permissions.chat?.controls ?? true)}
-						<Tooltip content={$i18n.t('Controls')}>
-							<button
-								class=" flex cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition"
-								on:click={async () => {
-									await showControls.set(!$showControls);
-								}}
-								aria-label="Controls"
-							>
-								<div class=" m-auto self-center">
-									<Knobs className=" size-5" strokeWidth="1" />
-								</div>
-							</button>
-						</Tooltip>
-					{/if}
-
-					{#if $user !== undefined && $user !== null}
-						<UserMenu
-							className="w-[240px]"
-							role={$user?.role}
-							help={true}
-							on:show={(e) => {
-								if (e.detail === 'archived-chat') {
-									showArchivedChats.set(true);
-								}
-							}}
-						>
-							<button
-								type="button"
-								class="select-none flex rounded-xl p-1.5 w-full hover:bg-gray-50 dark:hover:bg-gray-850 transition"
-								aria-label={$i18n.t('User menu')}
-							>
-								<div class=" self-center">
-									<img
-										src={`${OPENLAUNCH_API_BASE_URL}/users/${$user?.id}/profile/image`}
-										class="size-6 object-cover rounded-full"
-										alt=""
-										draggable="false"
-									/>
-								</div>
-							</button>
-						</UserMenu>
-					{/if}
 				</div>
 			</div>
 		</div>
@@ -342,3 +288,20 @@
 		{/if}
 	</div>
 </nav>
+
+{#if $user?.role === 'admin' || ($user?.permissions.chat?.controls ?? true)}
+	<div class="fixed bottom-4 right-4 z-40 no-drag">
+		<Tooltip content={$i18n.t('Controls')} placement="top-end">
+			<button
+				class="flex cursor-pointer items-center justify-center size-10 rounded-xl border border-gray-200/80 bg-white/90 text-gray-600 shadow-lg backdrop-blur transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-850/90 dark:text-gray-300 dark:hover:bg-gray-800"
+				on:click={async () => {
+					await showControls.set(!$showControls);
+				}}
+				aria-label={$i18n.t('Controls')}
+				aria-pressed={$showControls}
+			>
+				<Knobs className="size-5" strokeWidth="1" />
+			</button>
+		</Tooltip>
+	</div>
+{/if}

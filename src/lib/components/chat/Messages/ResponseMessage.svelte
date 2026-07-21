@@ -57,7 +57,6 @@
 	import ContentRenderer from './ContentRenderer.svelte';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import FileItem from '$lib/components/common/FileItem.svelte';
-	import FollowUps from './ResponseMessage/FollowUps.svelte';
 	import { fade } from 'svelte/transition';
 	import { flyAndScale } from '$lib/utils/transitions';
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
@@ -1511,23 +1510,6 @@
 								});
 							}}
 						/>
-					{/if}
-
-					{#if (isLastMessage || ($settings?.keepFollowUpPrompts ?? false)) && message.done && !readOnly && (message?.followUps ?? []).length > 0}
-						<div class="mt-2.5" in:fade={{ duration: 100 }}>
-							<FollowUps
-								followUps={message?.followUps}
-								onClick={(prompt) => {
-									if ($settings?.insertFollowUpPrompt ?? false) {
-										// Insert the follow-up prompt into the input box
-										setInputText(prompt);
-									} else {
-										// Submit the follow-up prompt directly
-										submitMessage(message?.id, prompt);
-									}
-								}}
-							/>
-						</div>
 					{/if}
 				{/if}
 			</div>

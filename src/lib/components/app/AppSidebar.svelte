@@ -2,6 +2,7 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Plus from '$lib/components/icons/Plus.svelte';
 	import { OPENLAUNCH_BASE_URL } from '$lib/constants';
+	import { config } from '$lib/stores';
 
 	let selected = '';
 </script>
@@ -55,7 +56,7 @@
 			}}
 		>
 			<img
-				src="{OPENLAUNCH_BASE_URL}/static/favicon.png"
+				src={$config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`}
 				class="size-10 {selected === '' ? 'rounded-2xl' : 'rounded-full'}"
 				alt="logo"
 				draggable="false"

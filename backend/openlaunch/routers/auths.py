@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import datetime
+import io
 import logging
 import re
 import time
@@ -10,7 +12,7 @@ import uuid
 from ssl import CERT_NONE, CERT_REQUIRED, PROTOCOL_TLS
 
 from aiohttp import ClientSession
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse, Response
 from ldap3 import NONE, Connection, Server, Tls
 from ldap3.utils.conv import escape_filter_chars
@@ -74,11 +76,19 @@ from openlaunch.utils.misc import parse_duration, validate_email_format
 from openlaunch.utils.rate_limit import RateLimiter
 from openlaunch.utils.redis import get_redis_client
 from pydantic import BaseModel
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 
 log = logging.getLogger(__name__)
+
+APP_LOGO_MAX_SIZE = 2 * 1024 * 1024
+APP_LOGO_MIME_TYPES = {
+    'PNG': 'image/png',
+    'JPEG': 'image/jpeg',
+    'WEBP': 'image/webp',
+}
 
 # Forgive us our failed attempts, as we forgive those
 # who exceed their allotted rate against this gate.
@@ -1172,6 +1182,39 @@ async def update_admin_config(request: Request, form_data: AdminConfig, user=Dep
 
     await Config.upsert(updates)
     return await get_config_values(ADMIN_CONFIG_KEYS)
+
+
+@router.post('/admin/logo')
+async def upload_admin_logo(file: UploadFile = File(...), user=Depends(get_admin_user)):
+    image_data = await file.read(APP_LOGO_MAX_SIZE + 1)
+    if len(image_data) > APP_LOGO_MAX_SIZE:
+        raise HTTPException(status_code=400, detail='Logo image must be 2 MB or smaller')
+
+    try:
+        with Image.open(io.BytesIO(image_data)) as image:
+            image_format = (image.format or '').upper()
+            width, height = image.size
+            image.verify()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail='Invalid logo image') from exc
+
+    media_type = APP_LOGO_MIME_TYPES.get(image_format)
+    if not media_type:
+        raise HTTPException(status_code=400, detail='Logo must be a PNG, JPEG, or WebP image')
+    if width != height:
+        raise HTTPException(status_code=400, detail='Logo image must have equal width and height')
+
+    updated_at = int(time.time() * 1000)
+    logo_data_uri = f'data:{media_type};base64,{base64.b64encode(image_data).decode("ascii")}'
+    await Config.upsert({'ui.logo': logo_data_uri, 'ui.logo_updated_at': updated_at})
+    return {'logo_url': f'/api/config/logo?v={updated_at}', 'custom_logo': True}
+
+
+@router.delete('/admin/logo')
+async def reset_admin_logo(user=Depends(get_admin_user)):
+    updated_at = int(time.time() * 1000)
+    await Config.upsert({'ui.logo': '', 'ui.logo_updated_at': updated_at})
+    return {'logo_url': f'/api/config/logo?v={updated_at}', 'custom_logo': False}
 
 
 class LdapServerConfig(BaseModel):

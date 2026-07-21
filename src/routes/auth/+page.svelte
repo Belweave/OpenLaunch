@@ -147,6 +147,11 @@
 		const logo = document.getElementById('logo');
 
 		if (logo) {
+			logo.src = $config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`;
+			logo.style.filter = '';
+
+			if ($config?.custom_logo) return;
+
 			const isDarkMode = document.documentElement.classList.contains('dark');
 
 			if (isDarkMode) {
@@ -246,7 +251,9 @@
 							class="flex items-center justify-center gap-3 text-xl sm:text-2xl text-center font-medium dark:text-gray-200"
 						>
 							<div>
-								{$i18n.t('Signing in to {{OPENLAUNCH_NAME}}', { OPENLAUNCH_NAME: $OPENLAUNCH_NAME })}
+								{$i18n.t('Signing in to {{OPENLAUNCH_NAME}}', {
+									OPENLAUNCH_NAME: $OPENLAUNCH_NAME
+								})}
 							</div>
 
 							<div>
@@ -262,7 +269,7 @@
 									<img
 										id="logo"
 										crossorigin="anonymous"
-										src="{OPENLAUNCH_BASE_URL}/static/favicon.png"
+										src={$config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`}
 										class="size-24 rounded-full"
 										alt="{$OPENLAUNCH_NAME} logo"
 									/>
@@ -278,13 +285,21 @@
 								<div class="mb-1">
 									<div class=" text-2xl font-medium">
 										{#if $config?.onboarding ?? false}
-											{$i18n.t(`Get started with {{OPENLAUNCH_NAME}}`, { OPENLAUNCH_NAME: $OPENLAUNCH_NAME })}
+											{$i18n.t(`Get started with {{OPENLAUNCH_NAME}}`, {
+												OPENLAUNCH_NAME: $OPENLAUNCH_NAME
+											})}
 										{:else if mode === 'ldap'}
-											{$i18n.t(`Sign in to {{OPENLAUNCH_NAME}} with LDAP`, { OPENLAUNCH_NAME: $OPENLAUNCH_NAME })}
+											{$i18n.t(`Sign in to {{OPENLAUNCH_NAME}} with LDAP`, {
+												OPENLAUNCH_NAME: $OPENLAUNCH_NAME
+											})}
 										{:else if mode === 'signin'}
-											{$i18n.t(`Sign in to {{OPENLAUNCH_NAME}}`, { OPENLAUNCH_NAME: $OPENLAUNCH_NAME })}
+											{$i18n.t(`Sign in to {{OPENLAUNCH_NAME}}`, {
+												OPENLAUNCH_NAME: $OPENLAUNCH_NAME
+											})}
 										{:else}
-											{$i18n.t(`Sign up to {{OPENLAUNCH_NAME}}`, { OPENLAUNCH_NAME: $OPENLAUNCH_NAME })}
+											{$i18n.t(`Sign up to {{OPENLAUNCH_NAME}}`, {
+												OPENLAUNCH_NAME: $OPENLAUNCH_NAME
+											})}
 										{/if}
 									</div>
 
@@ -614,7 +629,7 @@
 						<img
 							id="logo"
 							crossorigin="anonymous"
-							src="{OPENLAUNCH_BASE_URL}/static/favicon.png"
+							src={$config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`}
 							class=" w-6 rounded-full"
 							alt=""
 						/>

@@ -3,6 +3,7 @@
 	const i18n = getContext('i18n');
 
 	import { OPENLAUNCH_BASE_URL } from '$lib/constants';
+	import { config } from '$lib/stores';
 
 	import ArrowRightCircle from './icons/ArrowRightCircle.svelte';
 
@@ -13,6 +14,11 @@
 		const logo = document.getElementById('logo');
 
 		if (logo) {
+			logo.src = $config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`;
+			logo.style.filter = '';
+
+			if ($config?.custom_logo) return;
+
 			const isDarkMode = document.documentElement.classList.contains('dark');
 
 			if (isDarkMode) {
@@ -44,7 +50,7 @@
 					<img
 						id="logo"
 						crossorigin="anonymous"
-						src="{OPENLAUNCH_BASE_URL}/static/favicon.png"
+						src={$config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`}
 						class=" w-6 rounded-full"
 						alt="logo"
 					/>

@@ -3,16 +3,13 @@
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
 
-	import { onMount, getContext, tick, createEventDispatcher } from 'svelte';
-	import { blur, fade } from 'svelte/transition';
+	import { getContext, tick, createEventDispatcher } from 'svelte';
+	import { fade } from 'svelte/transition';
 
 	const dispatch = createEventDispatcher();
 
 	import { getChatList } from '$lib/apis/chats';
-	import { updateFolderById } from '$lib/apis/folders';
-
 	import {
-		config,
 		user,
 		models as _models,
 		temporaryChatEnabled,
@@ -20,10 +17,9 @@
 		chats,
 		currentChatPage
 	} from '$lib/stores';
-	import { sanitizeResponseContent, extractCurlyBraceWords } from '$lib/utils';
-	import { OPENLAUNCH_API_BASE_URL, OPENLAUNCH_BASE_URL } from '$lib/constants';
+	import { sanitizeResponseContent } from '$lib/utils';
+	import { OPENLAUNCH_API_BASE_URL } from '$lib/constants';
 
-	import Suggestions from './Suggestions.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import EyeSlash from '$lib/components/icons/EyeSlash.svelte';
 	import MessageInput from './MessageInput.svelte';
@@ -58,7 +54,6 @@
 	export let webSearchEnabled = false;
 
 	export let onUpload: Function = (e) => {};
-	export let onSelect = (e) => {};
 	export let onChange = (e) => {};
 	export let onWebSearchToggle: Function = () => {};
 
@@ -203,8 +198,7 @@
 								<div class="mt-0.5 text-sm font-normal text-gray-400 dark:text-gray-500">
 									By
 									{#if models[selectedModelIdx]?.info?.meta?.user.community}
-										<a
-											href="https://github.com/belweave/openlaunch"
+										<a href="https://github.com/belweave/openlaunch"
 											>{models[selectedModelIdx]?.info?.meta?.user.name
 												? models[selectedModelIdx]?.info?.meta?.user.name
 												: `@${models[selectedModelIdx]?.info?.meta?.user.username}`}</a
@@ -260,19 +254,6 @@
 			in:fade={{ duration: 200, delay: 200 }}
 		>
 			<FolderPlaceholder folder={$selectedFolder} />
-		</div>
-	{:else}
-		<div class="mx-auto max-w-2xl font-primary mt-2" in:fade={{ duration: 200, delay: 200 }}>
-			<div class="mx-5">
-				<Suggestions
-					suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
-						models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
-						$config?.default_prompt_suggestions ??
-						[]}
-					inputValue={prompt}
-					{onSelect}
-				/>
-			</div>
 		</div>
 	{/if}
 </div>

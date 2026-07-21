@@ -574,6 +574,11 @@ async def get_model_profile_image(
                 break
 
     if profile_image_url:
+        if profile_image_url in {'/favicon.png', '/static/favicon.png'}:
+            return RedirectResponse(
+                url='/api/config/logo',
+                status_code=status.HTTP_302_FOUND,
+            )
         if profile_image_url.startswith('http'):
             if ENABLE_PROFILE_IMAGE_URL_FORWARDING:
                 return Response(
@@ -593,7 +598,7 @@ async def get_model_profile_image(
                 # only serve known-safe raster types inline; reject SVG/unknown (can run script on our origin)
                 if media_type not in PROFILE_IMAGE_ALLOWED_MIME_TYPES:
                     return RedirectResponse(
-                        url='/static/favicon.png',
+                        url='/api/config/logo',
                         status_code=status.HTTP_302_FOUND,
                     )
 
@@ -620,7 +625,7 @@ async def get_model_profile_image(
                 )
 
     return RedirectResponse(
-        url='/static/favicon.png',
+        url='/api/config/logo',
         status_code=status.HTTP_302_FOUND,
     )
 

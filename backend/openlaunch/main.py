@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import mimetypes
@@ -1888,13 +1890,19 @@ async def get_app_config(request: Request):
         'ui.pending_user_overlay_title',
         'ui.pending_user_overlay_content',
         'ui.watermark',
+        'ui.logo',
+        'ui.logo_updated_at',
     )
+
+    logo_updated_at = config.get('ui.logo_updated_at') or 0
 
     return {
         **({'onboarding': True} if onboarding else {}),
         'status': True,
         'name': app.state.OPENLAUNCH_NAME,
         'version': VERSION,
+        'logo_url': f'/api/config/logo?v={logo_updated_at}',
+        'custom_logo': bool(config.get('ui.logo')),
         'default_locale': str(DEFAULT_LOCALE),
         'oauth': {
             'providers': {name: config.get('name', name) for name, config in OAUTH_PROVIDERS.items()},
@@ -2034,6 +2042,33 @@ async def get_app_config(request: Request):
             }
         ),
     }
+
+
+@app.get('/api/config/logo')
+async def get_app_logo(request: Request):
+    cache_control = 'public, max-age=31536000, immutable' if request.query_params.get('v') else 'no-cache'
+    logo_data_uri = await Config.get('ui.logo', '')
+    if logo_data_uri and logo_data_uri.startswith('data:image/'):
+        try:
+            header, encoded = logo_data_uri.split(',', 1)
+            media_type = header.removeprefix('data:').split(';', 1)[0].lower()
+            if media_type in {'image/png', 'image/jpeg', 'image/webp'}:
+                return Response(
+                    content=base64.b64decode(encoded, validate=True),
+                    media_type=media_type,
+                    headers={
+                        'Cache-Control': cache_control,
+                        'X-Content-Type-Options': 'nosniff',
+                    },
+                )
+        except (ValueError, binascii.Error):
+            pass
+
+    return FileResponse(
+        f'{STATIC_DIR}/favicon.png',
+        media_type='image/png',
+        headers={'Cache-Control': cache_control},
+    )
 
 
 class EventWebhookForm(BaseModel):

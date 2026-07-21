@@ -62,7 +62,11 @@
 		removeTerminalConnection
 	} from '$lib/utils/connections';
 
-	import { OPENLAUNCH_API_BASE_URL, OPENLAUNCH_BASE_URL, OPENLAUNCH_HOSTNAME } from '$lib/constants';
+	import {
+		OPENLAUNCH_API_BASE_URL,
+		OPENLAUNCH_BASE_URL,
+		OPENLAUNCH_HOSTNAME
+	} from '$lib/constants';
 	import {
 		bestMatchingLanguage,
 		cleanText,
@@ -508,7 +512,7 @@
 				if ($settings?.notificationEnabled ?? false) {
 					new Notification(`${data.title} • OpenLaunch`, {
 						body: timeStr,
-						icon: `${OPENLAUNCH_BASE_URL}/static/favicon.png`
+						icon: $config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`
 					});
 				}
 			}
@@ -640,7 +644,7 @@
 						if ($settings?.notificationEnabled ?? false) {
 							new Notification(`${displayTitle} • OpenLaunch`, {
 								body: contentPreview,
-								icon: `${OPENLAUNCH_BASE_URL}/static/favicon.png`
+								icon: $config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`
 							});
 						}
 					}
@@ -938,11 +942,7 @@
 	};
 
 	const windowMessageEventHandler = async (event) => {
-		if (
-			!['http://localhost:9999'].includes(
-				event.origin
-			)
-		) {
+		if (!['http://localhost:9999'].includes(event.origin)) {
 			return;
 		}
 
@@ -1237,7 +1237,11 @@
 
 <svelte:head>
 	<title>{$OPENLAUNCH_NAME}</title>
-	<link crossorigin="anonymous" rel="icon" href="{OPENLAUNCH_BASE_URL}/static/favicon.png" />
+	<link
+		crossorigin="anonymous"
+		rel="icon"
+		href={$config?.logo_url ?? `${OPENLAUNCH_BASE_URL}/api/config/logo`}
+	/>
 
 	<meta name="apple-mobile-web-app-title" content={$OPENLAUNCH_NAME} />
 	<meta name="description" content={$OPENLAUNCH_NAME} />
