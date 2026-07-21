@@ -262,6 +262,18 @@
 					} else {
 						message.statusHistory = [data];
 					}
+				} else if (type === 'operation') {
+					const currentOperation = message.operation;
+					const currentState = currentOperation?.payload?.state;
+					const terminalStates = ['succeeded', 'failed', 'cancelled', 'timed_out'];
+					if (
+						!currentOperation ||
+						currentOperation.operation_id !== data.operation_id ||
+						(!terminalStates.includes(currentState) &&
+							(data.sequence ?? 0) > (currentOperation.sequence ?? 0))
+					) {
+						message.operation = data;
+					}
 				} else if (type === 'chat:completion') {
 					chatCompletionEventHandler(data, message, event.chat_id);
 				} else if (type === 'chat:message:delta' || type === 'message') {
@@ -1683,6 +1695,27 @@
 
 		if (error) {
 			innerError = error;
+		}
+
+		const operationError = innerError?.detail?.code
+			? innerError.detail
+			: innerError?.error?.code
+				? innerError.error
+				: innerError?.code
+					? innerError
+					: null;
+
+		if (operationError) {
+			toast.error(operationError.message);
+			responseMessage.error = operationError;
+			responseMessage.done = true;
+			responseMessage.operation = {
+				...(responseMessage.operation ?? {}),
+				state: operationError.state,
+				error: operationError
+			};
+			history.messages[responseMessage.id] = responseMessage;
+			return;
 		}
 
 		console.error(innerError);

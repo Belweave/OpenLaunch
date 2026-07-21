@@ -23,6 +23,7 @@ from open_webui.env import (
 )
 from open_webui.utils.auth import decode_token
 from open_webui.socket.utils import RedisDict, RedisLock
+from open_webui.utils.operations import should_apply_operation_event
 
 from open_webui.env import (
     GLOBAL_LOG_LEVEL,
@@ -102,6 +103,31 @@ else:
     USER_POOL = {}
     USAGE_POOL = {}
     aquire_func = release_func = renew_func = lambda: True
+
+
+DIRECT_RELAY_QUEUES: dict[str, dict[str, asyncio.Queue]] = {}
+
+
+def register_direct_relay(session_id: str, channel: str, queue: asyncio.Queue):
+    DIRECT_RELAY_QUEUES.setdefault(session_id, {})[channel] = queue
+
+
+def unregister_direct_relay(session_id: str, channel: str):
+    session_relays = DIRECT_RELAY_QUEUES.get(session_id, {})
+    session_relays.pop(channel, None)
+    if not session_relays:
+        DIRECT_RELAY_QUEUES.pop(session_id, None)
+
+
+def cancel_direct_relays_for_session(session_id: str):
+    session_relays = DIRECT_RELAY_QUEUES.pop(session_id, {})
+    for channel, queue in session_relays.items():
+        queue.put_nowait(
+            {
+                "relay_disconnect": True,
+                "channel": channel,
+            }
+        )
 
 
 async def periodic_usage_pool_cleanup():
@@ -283,6 +309,7 @@ async def user_list(sid):
 
 @sio.event
 async def disconnect(sid):
+    cancel_direct_relays_for_session(sid)
     if sid in SESSION_POOL:
         user = SESSION_POOL[sid]
         del SESSION_POOL[sid]
@@ -361,6 +388,20 @@ def get_event_emitter(request_info, update_db=True):
                         "content": content,
                     },
                 )
+
+            if "type" in event_data and event_data["type"] == "operation":
+                operation = event_data.get("data", {})
+                message = Chats.get_message_by_id_and_message_id(
+                    request_info["chat_id"], request_info["message_id"]
+                )
+                if should_apply_operation_event(
+                    message.get("operation") if message else None, operation
+                ):
+                    Chats.upsert_message_to_chat_by_id_and_message_id(
+                        request_info["chat_id"],
+                        request_info["message_id"],
+                        {"operation": operation},
+                    )
 
     return __event_emitter__
 

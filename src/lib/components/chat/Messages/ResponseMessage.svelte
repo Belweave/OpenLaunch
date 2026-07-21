@@ -71,7 +71,16 @@
 			query?: string;
 		};
 		done: boolean;
-		error?: boolean | { content: string };
+		error?:
+			| boolean
+			| {
+					content?: string;
+					message?: string;
+					stage?: string;
+					state?: string;
+					operation_id?: string;
+					retryable?: boolean;
+			  };
 		sources?: string[];
 		code_executions?: {
 			uuid: string;
@@ -590,7 +599,9 @@
 		<div class={`shrink-0 ltr:mr-3 rtl:ml-3`}>
 			<ProfileImage
 				src={model?.info?.meta?.profile_image_url ??
-					($i18n.language === 'dg-DG' ? `/doge.png` : `${WEBUI_BASE_URL}/static/openlaunch_logo.png`)}
+					($i18n.language === 'dg-DG'
+						? `/doge.png`
+						: `${WEBUI_BASE_URL}/static/openlaunch_logo.png`)}
 				className={'size-8'}
 			/>
 		</div>
@@ -849,7 +860,11 @@
 								{/if}
 
 								{#if message?.error}
-									<Error content={message?.error?.content ?? message.content} />
+									<Error
+										content={message?.error?.content ?? message.content}
+										error={message.error}
+										on:retry={() => regenerateResponse(message)}
+									/>
 								{/if}
 
 								{#if (message?.sources || message?.citations) && (model?.info?.meta?.capabilities?.citations ?? true)}

@@ -787,6 +787,29 @@ ENABLE_DIRECT_CONNECTIONS = PersistentConfig(
     os.environ.get("ENABLE_DIRECT_CONNECTIONS", "True").lower() == "true",
 )
 
+DIRECT_CONNECTION_SOCKET_ACK_TIMEOUT = PersistentConfig(
+    "DIRECT_CONNECTION_SOCKET_ACK_TIMEOUT",
+    "direct.timeout.socket_ack",
+    float(os.environ.get("DIRECT_CONNECTION_SOCKET_ACK_TIMEOUT", "15")),
+)
+
+DIRECT_CONNECTION_FIRST_TOKEN_TIMEOUT = PersistentConfig(
+    "DIRECT_CONNECTION_FIRST_TOKEN_TIMEOUT",
+    "direct.timeout.first_token",
+    float(
+        os.environ.get(
+            "DIRECT_CONNECTION_FIRST_TOKEN_TIMEOUT",
+            os.environ.get("DIRECT_CONNECTION_FIRST_EVENT_TIMEOUT", "45"),
+        )
+    ),
+)
+
+DIRECT_CONNECTION_STREAM_IDLE_TIMEOUT = PersistentConfig(
+    "DIRECT_CONNECTION_STREAM_IDLE_TIMEOUT",
+    "direct.timeout.stream_idle",
+    float(os.environ.get("DIRECT_CONNECTION_STREAM_IDLE_TIMEOUT", "60")),
+)
+
 ####################################
 # OLLAMA_BASE_URL
 ####################################

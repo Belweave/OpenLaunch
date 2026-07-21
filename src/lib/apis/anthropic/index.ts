@@ -412,9 +412,9 @@ const transformAnthropicStream = (body: ReadableStream<Uint8Array>) => {
 export const anthropicChatCompletion = async (
 	key: string,
 	body: object,
-	url: string
+	url: string,
+	controller: AbortController = new AbortController()
 ): Promise<[Response | null, AbortController]> => {
-	const controller = new AbortController();
 	const anthropicBody = convertOpenAIToAnthropic(body);
 	let response: Response;
 

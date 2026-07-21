@@ -20,6 +20,8 @@ from open_webui.socket.main import (
     sio,
     get_event_call,
     get_event_emitter,
+    register_direct_relay,
+    unregister_direct_relay,
 )
 from open_webui.functions import generate_function_chat_completion
 
@@ -51,6 +53,13 @@ from open_webui.utils.filter import (
     get_sorted_filter_ids,
     process_filter_functions,
 )
+from open_webui.utils.operations import (
+    OperationException,
+    OperationState,
+    OperationTracker,
+    error_payload,
+    operation_error,
+)
 
 from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL, BYPASS_MODEL_ACCESS_CONTROL
 
@@ -58,6 +67,91 @@ from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL, BYPASS_MODEL_ACCESS
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
+
+
+def _direct_timeout(request: Request, name: str, default: float) -> float:
+    value = getattr(request.app.state.config, name, default)
+    return max(float(value), 0.001)
+
+
+def _remove_socket_handler(channel: str) -> None:
+    namespace_handlers = sio.handlers.get("/", {})
+    namespace_handlers.pop(channel, None)
+
+
+async def _cancel_direct_browser_request(metadata: dict, channel: str, reason: str):
+    session_id = metadata.get("session_id")
+    if not session_id:
+        return
+
+    await sio.emit(
+        "chat-events",
+        {
+            "chat_id": metadata.get("chat_id"),
+            "message_id": metadata.get("message_id"),
+            "data": {
+                "type": "request:chat:completion:cancel",
+                "data": {
+                    "session_id": session_id,
+                    "channel": channel,
+                    "reason": reason,
+                },
+            },
+        },
+        to=session_id,
+    )
+
+
+def _sse_data(data: dict) -> str:
+    return f"data: {json.dumps(data)}\n\n"
+
+
+def _direct_event_has_content(data: Any) -> bool:
+    if isinstance(data, str):
+        stripped = data.strip()
+        if not stripped.startswith("data:"):
+            return bool(stripped)
+        try:
+            data = json.loads(stripped.removeprefix("data:").strip())
+        except (TypeError, json.JSONDecodeError):
+            return False
+
+    if not isinstance(data, dict):
+        return False
+
+    for choice in data.get("choices", []):
+        delta = choice.get("delta", {})
+        message = choice.get("message", {})
+        if delta.get("content") or message.get("content"):
+            return True
+    return False
+
+
+def _log_direct_terminal(
+    *,
+    metadata: dict,
+    operation_id: str,
+    model_id: str,
+    started_at: float,
+    stage: str,
+    state: str,
+    code: str = "",
+    level: int = logging.INFO,
+):
+    log.log(
+        level,
+        "direct_relay_terminal operation_id=%s user_id=%s chat_id=%s message_id=%s "
+        "provider=direct_browser model_id=%s stage=%s duration_ms=%s terminal_state=%s code=%s",
+        operation_id,
+        metadata.get("user_id"),
+        metadata.get("chat_id"),
+        metadata.get("message_id"),
+        model_id,
+        stage,
+        int((time.monotonic() - started_at) * 1000),
+        state,
+        code,
+    )
 
 
 async def generate_direct_chat_completion(
@@ -72,7 +166,12 @@ async def generate_direct_chat_completion(
 
     user_id = metadata.get("user_id")
     session_id = metadata.get("session_id")
-    request_id = str(uuid.uuid4())  # Generate a unique request ID
+    operation_id = metadata.get("operation_id") or str(uuid.uuid4())
+    metadata["operation_id"] = operation_id
+    request_id = operation_id
+    tracker = OperationTracker(operation_id)
+    started_at = time.monotonic()
+    model_id = form_data["model"]
 
     event_caller = get_event_call(metadata)
 
@@ -85,73 +184,348 @@ async def generate_direct_chat_completion(
             """
             Handle received socket messages and push them into the queue.
             """
-            await q.put(data)
+            if sid == session_id:
+                await q.put(data)
 
         # Register the listener
         sio.on(channel, message_listener)
+        register_direct_relay(session_id, channel, q)
 
         # Start processing chat completion in background
-        res = await event_caller(
-            {
-                "type": "request:chat:completion",
-                "data": {
-                    "form_data": form_data,
-                    "model": models[form_data["model"]],
-                    "channel": channel,
-                    "session_id": session_id,
-                },
-            }
-        )
+        try:
+            res = await asyncio.wait_for(
+                event_caller(
+                    {
+                        "type": "request:chat:completion",
+                        "data": {
+                            "form_data": form_data,
+                            "model": models[form_data["model"]],
+                            "channel": channel,
+                            "session_id": session_id,
+                            "operation_id": operation_id,
+                        },
+                    }
+                ),
+                timeout=_direct_timeout(
+                    request, "DIRECT_CONNECTION_SOCKET_ACK_TIMEOUT", 15
+                ),
+            )
+        except asyncio.TimeoutError as exc:
+            error = operation_error(
+                code="direct_socket_ack_timeout",
+                message="The browser did not acknowledge the direct model request in time.",
+                stage="direct_relay_acknowledgement",
+                state=OperationState.TIMED_OUT,
+                operation_id=operation_id,
+                retryable=True,
+            )
+            _remove_socket_handler(channel)
+            unregister_direct_relay(session_id, channel)
+            await _cancel_direct_browser_request(metadata, channel, error.code)
+            _log_direct_terminal(
+                metadata=metadata,
+                operation_id=operation_id,
+                model_id=model_id,
+                started_at=started_at,
+                stage=error.stage,
+                state=error.state.value,
+                code=error.code,
+                level=logging.WARNING,
+            )
+            raise OperationException(error) from exc
+        except Exception:
+            _remove_socket_handler(channel)
+            unregister_direct_relay(session_id, channel)
+            raise
 
         log.info(f"res: {res}")
 
-        if res.get("status", False):
+        if isinstance(res, dict) and res.get("status", False):
             # Define a generator to stream responses
             async def event_generator():
                 nonlocal q
+                received_content = False
                 try:
+                    yield _sse_data(
+                        {
+                            "event": {
+                                "type": "operation",
+                                "data": tracker.event(
+                                    "operation.state",
+                                    {
+                                        "state": OperationState.RUNNING.value,
+                                        "stage": "provider_first_token",
+                                    },
+                                ),
+                            }
+                        }
+                    )
                     while True:
-                        data = await q.get()  # Wait for new messages
-                        if isinstance(data, dict):
-                            if "done" in data and data["done"]:
-                                break  # Stop streaming when 'done' is received
+                        timeout = _direct_timeout(
+                            request,
+                            (
+                                "DIRECT_CONNECTION_STREAM_IDLE_TIMEOUT"
+                                if received_content
+                                else "DIRECT_CONNECTION_FIRST_TOKEN_TIMEOUT"
+                            ),
+                            60 if received_content else 45,
+                        )
+                        try:
+                            data = await asyncio.wait_for(q.get(), timeout=timeout)
+                        except asyncio.TimeoutError:
+                            error = operation_error(
+                                code=(
+                                    "direct_stream_idle_timeout"
+                                    if received_content
+                                    else "direct_first_token_timeout"
+                                ),
+                                message=(
+                                    "The direct model stream stopped responding. You can retry the response."
+                                    if received_content
+                                    else "The direct model did not begin responding in time. You can retry the response."
+                                ),
+                                stage=(
+                                    "provider_stream"
+                                    if received_content
+                                    else "provider_first_token"
+                                ),
+                                state=OperationState.TIMED_OUT,
+                                operation_id=operation_id,
+                                retryable=True,
+                            )
+                            await _cancel_direct_browser_request(
+                                metadata, channel, error.code
+                            )
+                            _log_direct_terminal(
+                                metadata=metadata,
+                                operation_id=operation_id,
+                                model_id=model_id,
+                                started_at=started_at,
+                                stage=error.stage,
+                                state=error.state.value,
+                                code=error.code,
+                                level=logging.WARNING,
+                            )
+                            _remove_socket_handler(channel)
+                            unregister_direct_relay(session_id, channel)
+                            yield _sse_data(
+                                {
+                                    "event": {
+                                        "type": "operation",
+                                        "data": tracker.event(
+                                            "operation.state",
+                                            {
+                                                "state": error.state.value,
+                                                "stage": error.stage,
+                                                "error": error_payload(error),
+                                            },
+                                        ),
+                                    },
+                                    "error": error_payload(error),
+                                }
+                            )
+                            break
 
-                            yield f"data: {json.dumps(data)}\n\n"
+                        if isinstance(data, dict):
+                            if data.get("relay_disconnect"):
+                                error = operation_error(
+                                    code="direct_browser_disconnected",
+                                    message="The browser disconnected while the direct model was responding.",
+                                    stage="direct_relay",
+                                    state=OperationState.CANCELLED,
+                                    operation_id=operation_id,
+                                    retryable=True,
+                                )
+                                _remove_socket_handler(channel)
+                                unregister_direct_relay(session_id, channel)
+                                _log_direct_terminal(
+                                    metadata=metadata,
+                                    operation_id=operation_id,
+                                    model_id=model_id,
+                                    started_at=started_at,
+                                    stage=error.stage,
+                                    state=error.state.value,
+                                    code=error.code,
+                                )
+                                yield _sse_data(
+                                    {
+                                        "event": {
+                                            "type": "operation",
+                                            "data": tracker.event(
+                                                "operation.state",
+                                                {
+                                                    "state": error.state.value,
+                                                    "stage": error.stage,
+                                                    "error": error_payload(error),
+                                                },
+                                            ),
+                                        },
+                                        "error": error_payload(error),
+                                    }
+                                )
+                                break
+
+                            if "done" in data and data["done"]:
+                                _remove_socket_handler(channel)
+                                unregister_direct_relay(session_id, channel)
+                                _log_direct_terminal(
+                                    metadata=metadata,
+                                    operation_id=operation_id,
+                                    model_id=model_id,
+                                    started_at=started_at,
+                                    stage="completion",
+                                    state=OperationState.SUCCEEDED.value,
+                                )
+                                yield _sse_data(
+                                    {
+                                        "event": {
+                                            "type": "operation",
+                                            "data": tracker.event(
+                                                "operation.state",
+                                                {
+                                                    "state": OperationState.SUCCEEDED.value,
+                                                    "stage": "completion",
+                                                },
+                                            ),
+                                        }
+                                    }
+                                )
+                                break
+
+                            received_content = (
+                                received_content or _direct_event_has_content(data)
+                            )
+                            yield _sse_data(data)
                         elif isinstance(data, str):
+                            received_content = (
+                                received_content or _direct_event_has_content(data)
+                            )
                             yield data
+                except asyncio.CancelledError:
+                    await _cancel_direct_browser_request(
+                        metadata, channel, "request_cancelled"
+                    )
+                    _log_direct_terminal(
+                        metadata=metadata,
+                        operation_id=operation_id,
+                        model_id=model_id,
+                        started_at=started_at,
+                        stage="provider_stream",
+                        state=OperationState.CANCELLED.value,
+                        code="request_cancelled",
+                    )
+                    raise
                 except Exception as e:
-                    log.debug(f"Error in event generator: {e}")
-                    pass
+                    log.exception(
+                        "direct_relay_failed operation_id=%s stage=provider_stream",
+                        operation_id,
+                    )
+                    raise
+                finally:
+                    _remove_socket_handler(channel)
+                    unregister_direct_relay(session_id, channel)
 
             # Define a background task to run the event generator
             async def background():
-                try:
-                    del sio.handlers["/"][channel]
-                except Exception as e:
-                    pass
+                _remove_socket_handler(channel)
+                unregister_direct_relay(session_id, channel)
 
             # Return the streaming response
             return StreamingResponse(
                 event_generator(), media_type="text/event-stream", background=background
             )
         else:
-            raise Exception(str(res))
+            _remove_socket_handler(channel)
+            unregister_direct_relay(session_id, channel)
+            error = operation_error(
+                code="direct_browser_request_failed",
+                message="The browser could not start the direct model request.",
+                stage="direct_relay_acknowledgement",
+                state=OperationState.FAILED,
+                operation_id=operation_id,
+                retryable=True,
+            )
+            _log_direct_terminal(
+                metadata=metadata,
+                operation_id=operation_id,
+                model_id=model_id,
+                started_at=started_at,
+                stage=error.stage,
+                state=error.state.value,
+                code=error.code,
+                level=logging.WARNING,
+            )
+            raise OperationException(error)
     else:
-        res = await event_caller(
-            {
-                "type": "request:chat:completion",
-                "data": {
-                    "form_data": form_data,
-                    "model": models[form_data["model"]],
-                    "channel": channel,
-                    "session_id": session_id,
-                },
-            }
+        try:
+            res = await asyncio.wait_for(
+                event_caller(
+                    {
+                        "type": "request:chat:completion",
+                        "data": {
+                            "form_data": form_data,
+                            "model": models[form_data["model"]],
+                            "channel": channel,
+                            "session_id": session_id,
+                            "operation_id": operation_id,
+                        },
+                    }
+                ),
+                timeout=_direct_timeout(
+                    request, "DIRECT_CONNECTION_SOCKET_ACK_TIMEOUT", 15
+                ),
+            )
+        except asyncio.TimeoutError as exc:
+            error = operation_error(
+                code="direct_socket_ack_timeout",
+                message="The browser did not complete the direct model request in time.",
+                stage="direct_relay_acknowledgement",
+                state=OperationState.TIMED_OUT,
+                operation_id=operation_id,
+                retryable=True,
+            )
+            await _cancel_direct_browser_request(metadata, channel, error.code)
+            _log_direct_terminal(
+                metadata=metadata,
+                operation_id=operation_id,
+                model_id=model_id,
+                started_at=started_at,
+                stage=error.stage,
+                state=error.state.value,
+                code=error.code,
+                level=logging.WARNING,
+            )
+            raise OperationException(error) from exc
+
+        if not isinstance(res, dict) or res.get("error"):
+            error = operation_error(
+                code="direct_browser_request_failed",
+                message="The browser could not complete the direct model request.",
+                stage="direct_relay",
+                state=OperationState.FAILED,
+                operation_id=operation_id,
+                retryable=True,
+            )
+            _log_direct_terminal(
+                metadata=metadata,
+                operation_id=operation_id,
+                model_id=model_id,
+                started_at=started_at,
+                stage=error.stage,
+                state=error.state.value,
+                code=error.code,
+                level=logging.WARNING,
+            )
+            raise OperationException(error)
+
+        _log_direct_terminal(
+            metadata=metadata,
+            operation_id=operation_id,
+            model_id=model_id,
+            started_at=started_at,
+            stage="completion",
+            state=OperationState.SUCCEEDED.value,
         )
-
-        if "error" in res and res["error"]:
-            raise Exception(res["error"])
-
         return res
 
 

@@ -52,6 +52,7 @@
 	setContext('i18n', i18n);
 
 	const bc = new BroadcastChannel('active-tab-channel');
+	const directCompletionControllers = new Map();
 
 	let loaded = false;
 
@@ -88,6 +89,10 @@
 
 		_socket.on('disconnect', (reason, details) => {
 			console.log(`Socket ${_socket.id} disconnected due to ${reason}`);
+			for (const controller of directCompletionControllers.values()) {
+				controller.abort('Socket disconnected');
+			}
+			directCompletionControllers.clear();
 			if (details) {
 				console.log('Additional details:', details);
 			}
@@ -255,6 +260,17 @@
 		const type = event?.data?.type ?? null;
 		const data = event?.data?.data ?? null;
 
+		if (
+			type === 'request:chat:completion:cancel' &&
+			data?.session_id === $socket?.id &&
+			data?.channel
+		) {
+			const controller = directCompletionControllers.get(data.channel);
+			controller?.abort(data.reason ?? 'Direct model request cancelled');
+			directCompletionControllers.delete(data.channel);
+			return;
+		}
+
 		if ((event.chat_id !== $chatId && !$temporaryChatEnabled) || isFocused) {
 			if (type === 'chat:completion') {
 				const { done, content, title } = data;
@@ -297,6 +313,8 @@
 			} else if (type === 'request:chat:completion') {
 				console.log(data, $socket.id);
 				const { session_id, channel, form_data, model } = data;
+				const requestController = new AbortController();
+				directCompletionControllers.set(channel, requestController);
 
 				try {
 					const directConnections = $settings?.directConnections ?? {};
@@ -316,8 +334,18 @@
 
 							const [res, controller] =
 								API_CONFIG?.provider === 'anthropic'
-									? await anthropicChatCompletion(OPENAI_API_KEY, form_data, OPENAI_API_URL)
-									: await chatCompletion(OPENAI_API_KEY, form_data, OPENAI_API_URL);
+									? await anthropicChatCompletion(
+											OPENAI_API_KEY,
+											form_data,
+											OPENAI_API_URL,
+											requestController
+										)
+									: await chatCompletion(
+											OPENAI_API_KEY,
+											form_data,
+											OPENAI_API_URL,
+											requestController
+										);
 
 							if (res) {
 								// raise if the response is not ok
@@ -374,6 +402,7 @@
 					console.error('chatCompletion', error);
 					cb(error);
 				} finally {
+					directCompletionControllers.delete(channel);
 					$socket.emit(channel, {
 						done: true
 					});

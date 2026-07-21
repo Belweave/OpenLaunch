@@ -8,6 +8,7 @@ import shutil
 import sys
 import time
 import random
+import uuid
 
 from contextlib import asynccontextmanager
 from urllib.parse import urlencode, parse_qs, urlparse
@@ -104,6 +105,9 @@ from open_webui.config import (
     OPENAI_API_CONFIGS,
     # Direct Connections
     ENABLE_DIRECT_CONNECTIONS,
+    DIRECT_CONNECTION_SOCKET_ACK_TIMEOUT,
+    DIRECT_CONNECTION_FIRST_TOKEN_TIMEOUT,
+    DIRECT_CONNECTION_STREAM_IDLE_TIMEOUT,
     # Tool Server Configs
     TOOL_SERVER_CONNECTIONS,
     # Code Execution
@@ -379,6 +383,7 @@ from open_webui.tasks import (
 )  # Import from tasks.py
 
 from open_webui.utils.redis import get_sentinels_from_env
+from open_webui.utils.operations import OperationException, error_payload
 
 
 OPENLAUNCH_RELEASES_URL = "https://github.com/Belweave/OpenLaunch/releases"
@@ -514,6 +519,15 @@ app.state.TOOL_SERVERS = []
 ########################################
 
 app.state.config.ENABLE_DIRECT_CONNECTIONS = ENABLE_DIRECT_CONNECTIONS
+app.state.config.DIRECT_CONNECTION_SOCKET_ACK_TIMEOUT = (
+    DIRECT_CONNECTION_SOCKET_ACK_TIMEOUT
+)
+app.state.config.DIRECT_CONNECTION_FIRST_TOKEN_TIMEOUT = (
+    DIRECT_CONNECTION_FIRST_TOKEN_TIMEOUT
+)
+app.state.config.DIRECT_CONNECTION_STREAM_IDLE_TIMEOUT = (
+    DIRECT_CONNECTION_STREAM_IDLE_TIMEOUT
+)
 
 ########################################
 #
@@ -1106,6 +1120,7 @@ async def chat_completion(
             request.state.model = model
 
         metadata = {
+            "operation_id": str(uuid.uuid4()),
             "user_id": user.id,
             "chat_id": form_data.pop("chat_id", None),
             "message_id": form_data.pop("id", None),
@@ -1160,9 +1175,23 @@ async def chat_completion(
             request, response, form_data, user, metadata, model, events, tasks
         )
     except Exception as e:
+        error = error_payload(e.error) if isinstance(e, OperationException) else None
+        if metadata.get("chat_id") and metadata.get("message_id"):
+            Chats.upsert_message_to_chat_by_id_and_message_id(
+                metadata["chat_id"],
+                metadata["message_id"],
+                {
+                    "error": error or {"content": str(e)},
+                    **(
+                        {"operation": {"state": error["state"], "error": error}}
+                        if error
+                        else {}
+                    ),
+                },
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=error or str(e),
         )
 
 
