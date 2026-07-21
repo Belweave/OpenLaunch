@@ -17,7 +17,7 @@ If your issue or contribution pertains directly to the core Ollama technology, p
 
 ### 🚨 Reporting Issues
 
-Noticed something off? Have an idea? Check our [Issues tab](https://github.com/open-webui/open-webui/issues) to see if it's already been reported or suggested. If not, feel free to open a new issue. When reporting an issue, please follow our issue templates. These templates are designed to ensure that all necessary details are provided from the start, enabling us to address your concerns more efficiently.
+Noticed something off? Have an idea? Check our [Issues tab](https://github.com/belweave/openlaunch/issues) to see if it's already been reported or suggested. If not, feel free to open a new issue. When reporting an issue, please follow our issue templates. These templates are designed to ensure that all necessary details are provided from the start, enabling us to address your concerns more efficiently.
 
 > [!IMPORTANT]
 >
@@ -40,7 +40,7 @@ Looking to contribute? Great! Here's how you can help:
 
 We welcome pull requests. Before submitting one, please:
 
-1. Open a discussion regarding your ideas [here](https://github.com/open-webui/open-webui/discussions/new/choose).
+1. Open a discussion regarding your ideas [here](https://github.com/belweave/openlaunch/discussions/new/choose).
 2. Follow the project's coding standards and include tests for new features.
 3. Update documentation as necessary.
 4. Write clear, descriptive commit messages.
@@ -64,7 +64,7 @@ To add a new language:
 
 ### 🤔 Questions & Feedback
 
-Got questions or feedback? Join our [Discord community](https://discord.gg/5rJgQTnV4s) or open an issue. We're here to help!
+Got questions or feedback? Open an issue in the OpenLaunch repository. We're here to help!
 
 ## 🙏 Thank You!
 
