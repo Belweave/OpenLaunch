@@ -113,19 +113,19 @@
 		<hr class=" border-gray-100/30 dark:border-gray-850/30" />
 
 		<div class="flex space-x-1">
-				<a href="https://github.com/belweave/openlaunch/discussions" target="_blank">
-					<img
-						alt="GitHub Discussions"
-						src="https://img.shields.io/badge/GitHub-Discussions-181717?logo=github"
-					/>
-				</a>
+			<a href="https://github.com/belweave/openlaunch/discussions" target="_blank">
+				<img
+					alt="GitHub Discussions"
+					src="https://img.shields.io/badge/GitHub-Discussions-181717?logo=github"
+				/>
+			</a>
 
-				<a href="https://github.com/belweave/openlaunch" target="_blank">
-					<img
-						alt="Github Repo"
-						src="https://img.shields.io/github/stars/belweave/openlaunch?style=social&label=Star us on GitHub"
-					/>
-				</a>
+			<a href="https://github.com/belweave/openlaunch" target="_blank">
+				<img
+					alt="Github Repo"
+					src="https://img.shields.io/github/stars/belweave/openlaunch?style=social&label=Star us on GitHub"
+				/>
+			</a>
 		</div>
 
 		<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
@@ -148,11 +148,7 @@
 
 		<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
 			{$i18n.t('Created by')}
-			<a
-				class=" text-gray-500 dark:text-gray-300 font-medium"
-				href="https://github.com/tjbck"
-				target="_blank">Timothy J. Baek</a
-			>
+			<span class="text-gray-500 dark:text-gray-300 font-medium">Preetham Kyanam</span>
 		</div>
 	</div>
 </div>

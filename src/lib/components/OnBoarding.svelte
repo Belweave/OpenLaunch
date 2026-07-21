@@ -4,8 +4,6 @@
 
 	import { OPENLAUNCH_BASE_URL } from '$lib/constants';
 
-	import Marquee from './common/Marquee.svelte';
-	import SlideShow from './common/SlideShow.svelte';
 	import ArrowRightCircle from './icons/ArrowRightCircle.svelte';
 
 	export let show = true;
@@ -54,7 +52,10 @@
 			</div>
 		</div>
 
-		<SlideShow duration={5000} />
+		<div
+			class="w-full h-full absolute top-0 left-0 bg-cover bg-center"
+			style="background-image: url('{OPENLAUNCH_BASE_URL}/assets/images/galaxy.jpg')"
+		></div>
 
 		<div
 			class="w-full h-full absolute top-0 left-0 bg-linear-to-t from-20% from-black to-transparent"
@@ -65,22 +66,7 @@
 		<div class="relative bg-transparent w-full h-screen max-h-[100dvh] flex z-10">
 			<div class="flex flex-col justify-end w-full items-center pb-10 text-center">
 				<div class="text-5xl lg:text-7xl font-secondary">
-					<Marquee
-						duration={5000}
-						words={[
-							$i18n.t('Explore the cosmos'),
-							$i18n.t('Unlock mysteries'),
-							$i18n.t('Chart new frontiers'),
-							$i18n.t('Dive into knowledge'),
-							$i18n.t('Discover wonders'),
-							$i18n.t('Ignite curiosity'),
-							$i18n.t('Forge new paths'),
-							$i18n.t('Unravel secrets'),
-							$i18n.t('Pioneer insights'),
-							$i18n.t('Embark on adventures')
-						]}
-					/>
-
+					<div>{$i18n.t('Explore the cosmos')}</div>
 					<div class="mt-0.5">{$i18n.t(`wherever you are`)}</div>
 				</div>
 

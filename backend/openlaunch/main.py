@@ -2161,17 +2161,22 @@ async def get_app_latest_release_version(user=Depends(get_verified_user)):
         log.debug(f'Version update check is disabled, returning current version as latest version')
         return {'current': VERSION, 'latest': VERSION}
     try:
-        timeout = aiohttp.ClientTimeout(total=1)
+        timeout = aiohttp.ClientTimeout(total=10)
         async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
             async with session.get(
                 'https://api.github.com/repos/belweave/openlaunch/releases/latest',
+                headers={
+                    'Accept': 'application/vnd.github+json',
+                    'User-Agent': f'OpenLaunch/{VERSION}',
+                    'X-GitHub-Api-Version': '2022-11-28',
+                },
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
                 latest_version = data['tag_name']
 
-                return {'current': VERSION, 'latest': latest_version[1:]}
+                return {'current': VERSION, 'latest': latest_version.removeprefix('v')}
     except Exception as e:
         log.debug(e)
         return {'current': VERSION, 'latest': VERSION}

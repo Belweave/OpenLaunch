@@ -856,7 +856,10 @@ OPENLAUNCH_NAME = os.getenv('OPENLAUNCH_NAME', 'OpenLaunch')
 if OPENLAUNCH_NAME != 'OpenLaunch':
     OPENLAUNCH_NAME += ' (OpenLaunch)'
 
-OPENLAUNCH_FAVICON_URL = 'https://github.com/belweave/openlaunch'
+OPENLAUNCH_FAVICON_URL = os.getenv(
+    'OPENLAUNCH_FAVICON_URL',
+    'https://raw.githubusercontent.com/belweave/openlaunch/main/static/static/favicon.png',
+)
 OPENLAUNCH_BUILD_HASH = os.getenv('OPENLAUNCH_BUILD_HASH', 'dev-build')
 TRUSTED_SIGNATURE_KEY = os.getenv('TRUSTED_SIGNATURE_KEY', '')
 
