@@ -314,20 +314,6 @@
 		}
 	};
 
-	const onSelect = async (e) => {
-		const { type, data } = e;
-
-		if (type === 'prompt') {
-			// Handle prompt selection
-			messageInput?.setText(data, async () => {
-				if (!($settings?.insertSuggestionPrompt ?? false)) {
-					await tick();
-					submitHandler(prompt);
-				}
-			});
-		}
-	};
-
 	$: if (selectedModels && chatIdProp !== '') {
 		saveSessionSelectedModels();
 	}
@@ -2598,7 +2584,7 @@
 								tags_generation: $settings?.autoTags ?? true
 							}
 						: {}),
-					follow_up_generation: $settings?.autoFollowUps ?? true
+					follow_up_generation: false
 				},
 
 				...(stream && (model.info?.meta?.capabilities?.usage ?? false)
@@ -3273,7 +3259,6 @@
 										{addMessages}
 										topPadding={true}
 										bottomPadding={files.length > 0}
-										{onSelect}
 									/>
 								</div>
 							</div>
@@ -3391,7 +3376,6 @@
 									toolServers={$toolServers}
 									{stopResponse}
 									{createMessagePair}
-									{onSelect}
 									{onUpload}
 									onWebSearchToggle={handleWebSearchToggle}
 									onChange={(data) => {

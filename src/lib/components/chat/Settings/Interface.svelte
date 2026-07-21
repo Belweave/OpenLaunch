@@ -25,7 +25,6 @@
 
 	// Addons
 	let titleAutoGenerate = true;
-	let autoFollowUps = true;
 	let autoTags = true;
 
 	let responseAutoCopy = false;
@@ -202,7 +201,6 @@
 	onMount(async () => {
 		titleAutoGenerate = $settings?.title?.auto ?? true;
 		autoTags = $settings?.autoTags ?? true;
-		autoFollowUps = $settings?.autoFollowUps ?? true;
 
 		highContrastMode = $settings?.highContrastMode ?? false;
 
@@ -833,25 +831,6 @@
 							bind:state={titleAutoGenerate}
 							on:change={() => {
 								toggleTitleAutoGenerate();
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div class=" self-center text-xs" id="follow-up-auto-generation-label">
-						{$i18n.t('Follow-Up Auto-Generation')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="follow-up-auto-generation-label"
-							tooltip={true}
-							bind:state={autoFollowUps}
-							on:change={() => {
-								saveSettings({ autoFollowUps });
 							}}
 						/>
 					</div>
