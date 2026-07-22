@@ -29,6 +29,8 @@ starsessions[redis]==2.2.1
 sqlalchemy==2.0.50
 aiosqlite==0.22.1
 psycopg[binary]==3.3.4
+pyodbc==5.3.0
+snowflake-connector-python==4.7.1
 alembic==1.18.4
 
 pycrdt==0.13.1

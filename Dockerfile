@@ -132,6 +132,16 @@ RUN apt-get update && \
     ffmpeg libsm6 libxext6 zstd \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Microsoft's supported ODBC driver for SQL Server and Azure SQL.
+RUN curl -fsSLo /tmp/packages-microsoft-prod.deb \
+    https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb && \
+    dpkg -i /tmp/packages-microsoft-prod.deb && \
+    rm /tmp/packages-microsoft-prod.deb && \
+    apt-get update && \
+    ACCEPT_EULA=Y apt-get install -y --no-install-recommends \
+    msodbcsql18 unixodbc-dev libgssapi-krb5-2 && \
+    rm -rf /var/lib/apt/lists/*
+
 # install python dependencies
 COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
 

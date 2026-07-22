@@ -46,15 +46,55 @@ For an Anthropic-compatible gateway, set the base URL through the version prefix
 
 See [.env.example](./.env.example) for common settings. Container data lives at `/app/backend/data`; back up the volume before major upgrades.
 
-## Read-only SQL agent tool
+## Read-only data source tools
 
-OpenLaunch can expose schema discovery and read-only PostgreSQL queries to models through the same native tool-calling harness used by OpenAI, Anthropic, and compatible endpoints. It is disabled by default.
+OpenLaunch can expose multiple named PostgreSQL, SQL Server, Azure SQL, Snowflake, and Redis connections to models through the same native tool-calling harness used by OpenAI, Anthropic, and compatible endpoints. The feature is provider-neutral and disabled by default.
 
-1. Create a dedicated database role with only the `CONNECT`, `USAGE`, and `SELECT` grants the agent needs.
-2. Set `ENABLE_SQL_DATABASE_TOOL=true` and `SQL_DATABASE_URL` to that role's PostgreSQL URL. Do not reuse OpenLaunch's `DATABASE_URL`.
-3. Grant **SQL Database** permission only to the intended user group. Admins can use enabled built-in tools automatically.
+Configure connections as a JSON list in `DATA_SOURCE_CONNECTIONS`, or preferably place the same JSON in a secret-mounted file and set `DATA_SOURCE_CONNECTIONS_FILE`. For example:
 
-The harness accepts one `SELECT`, `WITH`, `EXPLAIN`, or `SHOW` statement per call and also enforces a read-only transaction, statement timeout, row limit, and output-size limit. Model settings can disable the SQL built-in for individual models. See [.env.example](./.env.example) for the resource-limit settings.
+```json
+[
+	{
+		"id": "analytics-warehouse",
+		"type": "snowflake",
+		"description": "Curated analytics views",
+		"config": {
+			"account": "organization-account",
+			"user": "agent_reader",
+			"password": "replace-with-a-secret",
+			"warehouse": "AGENT_WH",
+			"database": "ANALYTICS",
+			"schema": "PUBLISHED",
+			"role": "AGENT_READER"
+		},
+		"access_grants": [
+			{ "principal_type": "group", "principal_id": "group-id", "permission": "read" }
+		]
+	},
+	{
+		"id": "operational-cache",
+		"type": "redis",
+		"description": "Read-only operational cache",
+		"url": "rediss://agent_reader:replace-with-a-secret@redis.example:6379/0",
+		"access_grants": [
+			{ "principal_type": "group", "principal_id": "group-id", "permission": "read" }
+		]
+	}
+]
+```
+
+Supported connection forms are:
+
+- `postgresql`: a dedicated `url` such as `postgresql://...`.
+- `sql_server` or `azure_sql`: an ODBC `connection_string`, or `config` containing `server`, `database`, `user`, and `password`.
+- `snowflake`: `config` values accepted by the Snowflake Python connector.
+- `redis`: a `redis://`, `rediss://`, or `unix://` `url`.
+
+Set `ENABLE_DATA_SOURCE_TOOLS=true`, then grant **Data Sources** permission only to intended groups. A connection with no `access_grants` is admin-only. Model settings can also disable the built-in for individual models.
+
+SQL calls accept one `SELECT`, `WITH`, `EXPLAIN`, `SHOW`, or `DESCRIBE` statement, with time, row, query-length, and output-size limits. PostgreSQL additionally starts a database-enforced read-only transaction. SQL Server, Azure SQL, and Snowflake calls use rollback plus the SQL allowlist, but operators must still use dedicated least-privilege database roles and expose only approved objects. Redis offers a fixed set of bounded read operations rather than arbitrary commands. Never reuse OpenLaunch's application `DATABASE_URL` or an administrative account.
+
+The original `ENABLE_SQL_DATABASE_TOOL` and `SQL_DATABASE_URL` variables remain as a migration path for a single PostgreSQL connection. See [.env.example](./.env.example) for all limits.
 
 ## Run from source
 

@@ -43,9 +43,11 @@
 			label: $i18n.t('Code Interpreter'),
 			description: $i18n.t('Execute code')
 		},
-		sql_database: {
-			label: $i18n.t('SQL Database'),
-			description: $i18n.t('Inspect and query the configured read-only SQL database')
+		data_sources: {
+			label: $i18n.t('Data Sources'),
+			description: $i18n.t(
+				'Inspect and read authorized SQL databases, warehouses, and Redis data sources'
+			)
 		},
 		tasks: {
 			label: $i18n.t('Task Management'),

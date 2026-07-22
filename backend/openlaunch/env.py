@@ -872,14 +872,47 @@ ENABLE_EASTER_EGGS = os.getenv('ENABLE_EASTER_EGGS', 'True').lower() == 'true'
 ENABLE_STAR_SESSIONS_MIDDLEWARE = os.getenv('ENABLE_STAR_SESSIONS_MIDDLEWARE', 'False').lower() == 'true'
 ENABLE_KB_EXEC = os.getenv('ENABLE_KB_EXEC', 'False').lower() == 'true'
 
-# Read-only enterprise SQL tool. Keep this connection separate from OpenLaunch's
-# application database and disabled unless an operator explicitly configures it.
+# Provider-neutral, read-only data source tools. Keep these connections separate
+# from OpenLaunch's application data and disabled unless explicitly configured.
 ENABLE_SQL_DATABASE_TOOL = os.getenv('ENABLE_SQL_DATABASE_TOOL', 'False').lower() == 'true'
 SQL_DATABASE_URL = os.getenv('SQL_DATABASE_URL', '')
-SQL_DATABASE_MAX_ROWS = max(1, int(os.getenv('SQL_DATABASE_MAX_ROWS', '200')))
-SQL_DATABASE_QUERY_TIMEOUT_SECONDS = max(1, int(os.getenv('SQL_DATABASE_QUERY_TIMEOUT_SECONDS', '15')))
-SQL_DATABASE_MAX_RESULT_BYTES = max(1_024, int(os.getenv('SQL_DATABASE_MAX_RESULT_BYTES', '100000')))
-SQL_DATABASE_MAX_QUERY_CHARACTERS = max(1_000, int(os.getenv('SQL_DATABASE_MAX_QUERY_CHARACTERS', '20000')))
+ENABLE_DATA_SOURCE_TOOLS = os.getenv('ENABLE_DATA_SOURCE_TOOLS', str(ENABLE_SQL_DATABASE_TOOL)).lower() == 'true'
+DATA_SOURCE_CONNECTIONS = os.getenv('DATA_SOURCE_CONNECTIONS', '[]')
+DATA_SOURCE_CONNECTIONS_FILE = os.getenv('DATA_SOURCE_CONNECTIONS_FILE', '')
+DATA_SOURCE_MAX_ROWS = max(1, int(os.getenv('DATA_SOURCE_MAX_ROWS', os.getenv('SQL_DATABASE_MAX_ROWS', '200'))))
+DATA_SOURCE_QUERY_TIMEOUT_SECONDS = max(
+    1,
+    int(
+        os.getenv(
+            'DATA_SOURCE_QUERY_TIMEOUT_SECONDS',
+            os.getenv('SQL_DATABASE_QUERY_TIMEOUT_SECONDS', '15'),
+        )
+    ),
+)
+DATA_SOURCE_MAX_RESULT_BYTES = max(
+    1_024,
+    int(
+        os.getenv(
+            'DATA_SOURCE_MAX_RESULT_BYTES',
+            os.getenv('SQL_DATABASE_MAX_RESULT_BYTES', '100000'),
+        )
+    ),
+)
+DATA_SOURCE_MAX_QUERY_CHARACTERS = max(
+    1_000,
+    int(
+        os.getenv(
+            'DATA_SOURCE_MAX_QUERY_CHARACTERS',
+            os.getenv('SQL_DATABASE_MAX_QUERY_CHARACTERS', '20000'),
+        )
+    ),
+)
+
+# Compatibility aliases for extensions that imported the original SQL limits.
+SQL_DATABASE_MAX_ROWS = DATA_SOURCE_MAX_ROWS
+SQL_DATABASE_QUERY_TIMEOUT_SECONDS = DATA_SOURCE_QUERY_TIMEOUT_SECONDS
+SQL_DATABASE_MAX_RESULT_BYTES = DATA_SOURCE_MAX_RESULT_BYTES
+SQL_DATABASE_MAX_QUERY_CHARACTERS = DATA_SOURCE_MAX_QUERY_CHARACTERS
 
 ENABLE_PROFILE_IMAGE_URL_FORWARDING = os.getenv('ENABLE_PROFILE_IMAGE_URL_FORWARDING', 'True').lower() == 'true'
 PROFILE_IMAGE_ALLOWED_MIME_TYPES = frozenset(

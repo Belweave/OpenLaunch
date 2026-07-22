@@ -965,11 +965,11 @@
 		<div class="flex flex-col w-full">
 			<div class="flex w-full justify-between my-1">
 				<div class=" self-center text-xs font-medium">
-					{$i18n.t('SQL Database')}
+					{$i18n.t('Data Sources')}
 				</div>
-				<Switch bind:state={permissions.features.sql_database} />
+				<Switch bind:state={permissions.features.data_sources} />
 			</div>
-			{#if defaultPermissions?.features?.sql_database && !permissions.features.sql_database}
+			{#if defaultPermissions?.features?.data_sources && !permissions.features.data_sources}
 				<div>
 					<div class="text-xs text-gray-500">
 						{$i18n.t('This is a default user permission and will remain enabled.')}

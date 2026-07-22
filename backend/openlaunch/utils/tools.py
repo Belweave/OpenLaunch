@@ -93,10 +93,12 @@ from openlaunch.tools.builtin import (
     view_skill,
     write_note,
 )
-from openlaunch.tools.sql_database import (
-    is_sql_database_configured,
-    list_sql_database_schema,
-    query_sql_database,
+from openlaunch.tools.data_sources import (
+    inspect_data_source,
+    is_data_sources_configured,
+    list_data_sources,
+    query_data_source,
+    read_redis_data_source,
 )
 from openlaunch.utils.access_control import has_access, has_connection_access, has_permission
 from openlaunch.utils.headers import get_custom_headers, include_user_info_headers
@@ -622,14 +624,22 @@ async def get_builtin_tools(
     ):
         builtin_functions.append(execute_code)
 
-    # Enterprise SQL is opt-in at the deployment, model, and user/group levels.
-    # The callable itself enforces PostgreSQL read-only transactions and resource caps.
+    # Named data sources are opt-in at the deployment, model, connection-grant,
+    # and user/group levels. Each adapter also enforces a constrained read surface.
     if (
-        is_builtin_tool_enabled('sql_database')
-        and is_sql_database_configured()
-        and await has_user_permission('sql_database')
+        is_builtin_tool_enabled('data_sources')
+        and is_builtin_tool_enabled('sql_database')
+        and is_data_sources_configured()
+        and (await has_user_permission('data_sources') or await has_user_permission('sql_database'))
     ):
-        builtin_functions.extend([list_sql_database_schema, query_sql_database])
+        builtin_functions.extend(
+            [
+                list_data_sources,
+                inspect_data_source,
+                query_data_source,
+                read_redis_data_source,
+            ]
+        )
 
     # Notes tools - search, view, create, and update user's notes
     if is_builtin_tool_enabled('notes') and config.get('notes.enable') and await has_user_permission('notes'):

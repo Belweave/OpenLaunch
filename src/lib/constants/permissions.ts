@@ -66,6 +66,8 @@ export const DEFAULT_PERMISSIONS = {
 		web_search: true,
 		image_generation: true,
 		code_interpreter: true,
+		data_sources: false,
+		// Retained for installations upgrading from the original PostgreSQL-only feature.
 		sql_database: false,
 		memories: true,
 		automations: false,
