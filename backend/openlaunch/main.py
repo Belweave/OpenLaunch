@@ -139,6 +139,7 @@ from openlaunch.models.messages import Messages
 from openlaunch.models.models import Models
 from openlaunch.models.users import Users
 from openlaunch.routers import (
+    agentmail,
     analytics,
     anthropic,
     audio,
@@ -758,6 +759,7 @@ app.include_router(control_plane.router, prefix='/api/v1/control-plane', tags=['
 
 app.include_router(auths.router, prefix='/api/v1/auths', tags=['auths'])
 app.include_router(users.router, prefix='/api/v1/users', tags=['users'])
+app.include_router(agentmail.router, prefix='/api/v1/agentmail', tags=['agentmail'])
 
 
 app.include_router(channels.router, prefix='/api/v1/channels', tags=['channels'])
@@ -1889,6 +1891,7 @@ async def get_app_config(request: Request):
         'calendar.enable',
         'automations.enable',
         'notes.enable',
+        'email.agentmail.enable',
         'web.search.enable',
         'web.search.confirmation.enable',
         'web.search.confirmation.content',
@@ -1963,6 +1966,7 @@ async def get_app_config(request: Request):
                     'enable_calendar': config.get('calendar.enable'),
                     'enable_automations': config.get('automations.enable'),
                     'enable_notes': config.get('notes.enable'),
+                    'enable_agentmail': config.get('email.agentmail.enable'),
                     'enable_web_search': config.get('web.search.enable'),
                     'enable_web_search_confirmation': config.get('web.search.confirmation.enable'),
                     'web_search_confirmation_content': config.get('web.search.confirmation.content'),

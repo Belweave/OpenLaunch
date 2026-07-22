@@ -2751,6 +2751,9 @@ LDAP_VALIDATE_CERT = os.getenv('LDAP_VALIDATE_CERT', 'True').lower() == 'true'
 
 LDAP_CIPHERS = os.getenv('LDAP_CIPHERS', 'ALL')
 
+ENABLE_AGENTMAIL = os.getenv('ENABLE_AGENTMAIL', 'False').lower() == 'true'
+AGENTMAIL_API_KEY = os.getenv('AGENTMAIL_API_KEY', '')
+
 ENABLE_LDAP_GROUP_MANAGEMENT = os.getenv('ENABLE_LDAP_GROUP_MANAGEMENT', 'False').lower() == 'true'
 
 ENABLE_LDAP_GROUP_CREATION = os.getenv('ENABLE_LDAP_GROUP_CREATION', 'False').lower() == 'true'
@@ -2772,6 +2775,9 @@ DEFAULT_CONFIG = {
     'anthropic.api_configs': ANTHROPIC_API_CONFIGS,
     'models.base_models_cache': ENABLE_BASE_MODELS_CACHE,
     'tool_server.connections': TOOL_SERVER_CONNECTIONS,
+    'email.agentmail.enable': ENABLE_AGENTMAIL,
+    'email.agentmail.api_key': AGENTMAIL_API_KEY,
+    'email.agentmail.user_inboxes': {},
     'oauth.client.timeout': OAUTH_CLIENT_TIMEOUT,
     'terminal_server.connections': TERMINAL_SERVER_CONNECTIONS,
     'code_execution.enable': ENABLE_CODE_EXECUTION,

@@ -81,6 +81,7 @@
 	import PinnedNoteList from './Sidebar/PinnedNoteList.svelte';
 	import Note from '../icons/Note.svelte';
 	import Code from '../icons/Code.svelte';
+	import Envelope from '../icons/Envelope.svelte';
 	import { slide } from 'svelte/transition';
 	import HotkeyHint from '../common/HotkeyHint.svelte';
 
@@ -116,7 +117,10 @@
 
 	let sharedFolders: any[] = [];
 
-	$: pinnedItems = $settings?.pinnedMenuItems ?? DEFAULT_PINNED_ITEMS;
+	$: configuredPinnedItems = $settings?.pinnedMenuItems ?? DEFAULT_PINNED_ITEMS;
+	$: pinnedItems = $config?.features?.enable_agentmail
+		? ['email', ...configuredPinnedItems.filter((item) => item !== 'email')]
+		: configuredPinnedItems.filter((item) => item !== 'email');
 
 	const isMenuItemVisible = (id) => {
 		switch (id) {
@@ -125,6 +129,8 @@
 					($config?.features?.enable_notes ?? false) &&
 					($user?.role === 'admin' || ($user?.permissions?.features?.notes ?? true))
 				);
+			case 'email':
+				return $config?.features?.enable_agentmail ?? false;
 			case 'workspace':
 				return (
 					$user?.role === 'admin' ||
@@ -153,6 +159,7 @@
 
 	const getMenuItemMeta = (id) => {
 		const items = {
+			email: { label: 'Email', href: '/email', iconType: 'email' },
 			notes: { label: 'Notes', href: '/notes', iconType: 'note' },
 			workspace: { label: 'Workspace', href: '/workspace', iconType: 'workspace' },
 			automations: { label: 'Automations', href: '/automations', iconType: 'automations' },
@@ -918,7 +925,9 @@
 									aria-label={$i18n.t(meta.label)}
 								>
 									<div class=" self-center flex items-center justify-center size-9">
-										{#if itemId === 'notes'}
+										{#if itemId === 'email'}
+											<Envelope className="size-4.5" />
+										{:else if itemId === 'notes'}
 											<Note className="size-4.5" />
 										{:else if itemId === 'workspace'}
 											<svg
@@ -1167,7 +1176,9 @@
 										aria-label={$i18n.t(meta.label)}
 									>
 										<div class="self-center">
-											{#if itemId === 'notes'}
+											{#if itemId === 'email'}
+												<Envelope className="size-4.5" strokeWidth="2" />
+											{:else if itemId === 'notes'}
 												<Note className="size-4.5" strokeWidth="2" />
 											{:else if itemId === 'workspace'}
 												<svg

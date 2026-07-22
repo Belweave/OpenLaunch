@@ -10,6 +10,11 @@
 		uploadAdminLogo
 	} from '$lib/apis/auths';
 	import { getBanners, setBanners } from '$lib/apis/configs';
+	import {
+		getAgentMailAdminConfig,
+		testAgentMailAdminConfig,
+		updateAgentMailAdminConfig
+	} from '$lib/apis/agentmail';
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { OPENLAUNCH_BUILD_HASH, OPENLAUNCH_VERSION } from '$lib/constants';
@@ -37,6 +42,13 @@
 	let logoUploading = false;
 	let logoUrl = '/api/config/logo';
 	let hasCustomLogo = false;
+	let agentMailConfig = {
+		ENABLE_AGENTMAIL: false,
+		AGENTMAIL_API_KEY: '',
+		HAS_AGENTMAIL_API_KEY: false,
+		CLEAR_AGENTMAIL_API_KEY: false
+	};
+	let testingAgentMail = false;
 
 	let banners: Banner[] = [];
 
@@ -60,7 +72,10 @@
 	};
 
 	const updateHandler = async () => {
-		const res = await updateAdminConfig(localStorage.token, adminConfig);
+		const [res] = await Promise.all([
+			updateAdminConfig(localStorage.token, adminConfig),
+			updateAgentMailAdminConfig(localStorage.token, agentMailConfig)
+		]);
 
 		await updateBanners();
 
@@ -72,6 +87,21 @@
 			saveHandler();
 		} else {
 			toast.error($i18n.t('Failed to update settings'));
+		}
+	};
+
+	const testAgentMail = async () => {
+		testingAgentMail = true;
+		try {
+			if (agentMailConfig.AGENTMAIL_API_KEY) {
+				agentMailConfig = await updateAgentMailAdminConfig(localStorage.token, agentMailConfig);
+			}
+			await testAgentMailAdminConfig(localStorage.token);
+			toast.success($i18n.t('AgentMail connection successful'));
+		} catch (error) {
+			toast.error(typeof error === 'string' ? error : $i18n.t('AgentMail connection failed'));
+		} finally {
+			testingAgentMail = false;
 		}
 	};
 
@@ -133,7 +163,10 @@
 	};
 
 	onMount(async () => {
-		adminConfig = await getAdminConfig(localStorage.token);
+		[adminConfig, agentMailConfig] = await Promise.all([
+			getAdminConfig(localStorage.token),
+			getAgentMailAdminConfig(localStorage.token)
+		]);
 		logoUrl = $config?.logo_url ?? '/api/config/logo';
 		hasCustomLogo = $config?.custom_logo ?? false;
 
@@ -217,6 +250,75 @@
 								</div>
 							</div>
 						</div>
+					</div>
+
+					<div class="mb-4 rounded-xl border border-gray-100 p-3 dark:border-gray-800">
+						<div class="flex items-center justify-between gap-4">
+							<div>
+								<div class="text-xs font-medium">{$i18n.t('Email — AgentMail')}</div>
+								<div class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+									{$i18n.t(
+										'Give each OpenLaunch user an AgentMail inbox and email tools for chat agents.'
+									)}
+								</div>
+							</div>
+							<Switch bind:state={agentMailConfig.ENABLE_AGENTMAIL} />
+						</div>
+
+						{#if agentMailConfig.ENABLE_AGENTMAIL}
+							<div class="mt-3">
+								<div class="mb-1.5 flex items-center gap-2 text-xs font-medium">
+									<span>{$i18n.t('Global AgentMail API Key')}</span>
+									{#if agentMailConfig.HAS_AGENTMAIL_API_KEY && !agentMailConfig.CLEAR_AGENTMAIL_API_KEY}
+										<span class="text-green-600 dark:text-green-400">{$i18n.t('Saved')}</span>
+									{/if}
+								</div>
+								<input
+									class="w-full rounded-lg bg-gray-50 px-4 py-2 text-sm outline-hidden dark:bg-gray-850 dark:text-gray-300"
+									type="password"
+									autocomplete="new-password"
+									placeholder={agentMailConfig.HAS_AGENTMAIL_API_KEY &&
+									!agentMailConfig.CLEAR_AGENTMAIL_API_KEY
+										? $i18n.t('Saved — enter a new key to replace it')
+										: 'am_...'}
+									bind:value={agentMailConfig.AGENTMAIL_API_KEY}
+									on:input={() => (agentMailConfig.CLEAR_AGENTMAIL_API_KEY = false)}
+								/>
+								<div class="mt-2 flex items-center gap-2">
+									<button
+										type="button"
+										class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium transition hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-850 dark:hover:bg-gray-800"
+										disabled={testingAgentMail ||
+											(!agentMailConfig.AGENTMAIL_API_KEY &&
+												!agentMailConfig.HAS_AGENTMAIL_API_KEY)}
+										on:click={testAgentMail}
+									>
+										{testingAgentMail ? $i18n.t('Testing...') : $i18n.t('Test connection')}
+									</button>
+									{#if agentMailConfig.HAS_AGENTMAIL_API_KEY && !agentMailConfig.CLEAR_AGENTMAIL_API_KEY}
+										<button
+											type="button"
+											class="rounded-lg px-3 py-1.5 text-xs text-red-600 transition hover:bg-red-50 dark:hover:bg-red-950/30"
+											on:click={() => {
+												agentMailConfig.CLEAR_AGENTMAIL_API_KEY = true;
+												agentMailConfig.AGENTMAIL_API_KEY = '';
+												agentMailConfig.HAS_AGENTMAIL_API_KEY = false;
+											}}
+										>
+											{$i18n.t('Clear saved key')}
+										</button>
+									{/if}
+									<a
+										href="https://console.agentmail.to"
+										target="_blank"
+										rel="noreferrer"
+										class="ml-auto text-xs text-gray-500 underline"
+									>
+										{$i18n.t('AgentMail Console')}
+									</a>
+								</div>
+							</div>
+						{/if}
 					</div>
 
 					<div class="mb-2.5">

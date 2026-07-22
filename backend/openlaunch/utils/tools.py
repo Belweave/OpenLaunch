@@ -100,6 +100,18 @@ from openlaunch.tools.data_sources import (
     query_data_source,
     read_redis_data_source,
 )
+from openlaunch.tools.agentmail import (
+    agentmail_client,
+    forward_email,
+    get_email_attachment,
+    get_email_thread,
+    list_email_threads,
+    manage_email_draft,
+    reply_to_email,
+    search_email,
+    send_email,
+    update_email_labels,
+)
 from openlaunch.utils.access_control import has_access, has_connection_access, has_permission
 from openlaunch.utils.headers import get_custom_headers, include_user_info_headers
 from openlaunch.utils.misc import is_string_allowed
@@ -552,6 +564,7 @@ async def get_builtin_tools(
         'channels.enable',
         'automations.enable',
         'calendar.enable',
+        'email.agentmail.enable',
     )
 
     async def has_user_permission(feature_key: str) -> bool:
@@ -728,6 +741,23 @@ async def get_builtin_tools(
     if is_builtin_tool_enabled('calendar') and config.get('calendar.enable') and await has_user_permission('calendar'):
         builtin_functions.extend(
             [search_calendar_events, create_calendar_event, update_calendar_event, delete_calendar_event]
+        )
+
+    # AgentMail tools are scoped to the signed-in user's provisioned inbox.
+    if is_builtin_tool_enabled('email') and config.get('email.agentmail.enable'):
+        builtin_functions.extend(
+            [
+                list_email_threads,
+                search_email,
+                get_email_thread,
+                get_email_attachment,
+                send_email,
+                reply_to_email,
+                forward_email,
+                update_email_labels,
+                manage_email_draft,
+                agentmail_client,
+            ]
         )
 
     for func in builtin_functions:
