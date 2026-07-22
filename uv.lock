@@ -3119,6 +3119,7 @@ dependencies = [
     { name = "snowflake-connector-python" },
     { name = "soundfile" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "sqlglot" },
     { name = "starlette-compress" },
     { name = "starsessions", extra = ["redis"] },
     { name = "tiktoken" },
@@ -3275,6 +3276,7 @@ requires-dist = [
     { name = "snowflake-connector-python", specifier = "==4.7.1" },
     { name = "soundfile", specifier = "==0.13.1" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.50" },
+    { name = "sqlglot", specifier = "==30.13.0" },
     { name = "starlette-compress", specifier = "==1.7.1" },
     { name = "starsessions", extras = ["redis"], specifier = "==2.2.1" },
     { name = "tiktoken", specifier = "==0.13.0" },
@@ -5390,6 +5392,15 @@ wheels = [
 [package.optional-dependencies]
 asyncio = [
     { name = "greenlet" },
+]
+
+[[package]]
+name = "sqlglot"
+version = "30.13.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/62/6d5bd3169478b7f09e08ab3e50175d486a9e7f3a419b88fc9280ba564ab1/sqlglot-30.13.0.tar.gz", hash = "sha256:f0a6eb79de2fd6efe2689f8cf197caa4f08bfe77c7880315616fa4420b8ba2bf", size = 5932385 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/2f/2076eca54f6a8ed1c86301bdb4bb2ae4181b0c1c4dbc041062ca997dc1b2/sqlglot-30.13.0-py3-none-any.whl", hash = "sha256:08f87ff7b052246d61b731628c8c2db0bc91f2c9e69f5ba68a1d160a9f5b49b1", size = 719120 },
 ]
 
 [[package]]

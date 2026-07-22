@@ -104,10 +104,66 @@ from openlaunch.utils.access_control import has_access, has_connection_access, h
 from openlaunch.utils.headers import get_custom_headers, include_user_info_headers
 from openlaunch.utils.misc import is_string_allowed
 from openlaunch.utils.plugin import get_tool_contents_cache, get_tools_cache, load_tool_module_by_id
+from openlaunch.utils.tool_executor import normalize_tool_annotations
 from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
 
 log = logging.getLogger(__name__)
+
+
+def _tool_annotations(tool_dict: dict, spec: dict | None = None, function: Callable | None = None) -> dict:
+    declared = {}
+    if isinstance(spec, dict):
+        declared.update(spec.get('x-openlaunch-annotations') or {})
+    if function is not None:
+        declared.update(getattr(function, '__openlaunch_tool_annotations__', {}) or {})
+    declared.update(tool_dict.get('annotations') or {})
+    return normalize_tool_annotations(declared, tool_type=tool_dict.get('type', ''))
+
+
+def register_tool(
+    registry: dict[str, dict],
+    requested_name: str,
+    tool_dict: dict,
+    *,
+    namespace: str = 'tool',
+) -> str:
+    """Register a tool under a unique name without mutating cached schemas."""
+    base_name = requested_name
+    final_name = base_name
+    suffix = 2
+    while final_name in registry:
+        candidate = f'{namespace}_{base_name}'
+        final_name = candidate if candidate not in registry else f'{candidate}_{suffix}'
+        suffix += 1
+    if final_name != requested_name:
+        log.warning('Tool name collision: %s advertised as %s', requested_name, final_name)
+
+    registered = dict(tool_dict)
+    spec = copy.deepcopy(registered.get('spec') or {})
+    annotations = _tool_annotations(
+        registered,
+        spec,
+        registered.get('source_callable') or registered.get('callable'),
+    )
+    # Provider schemas do not consistently permit extension fields; enforcement
+    # uses the internal registry metadata above.
+    spec.pop('x-openlaunch-annotations', None)
+    spec['name'] = final_name
+    registered['spec'] = spec
+    registered['name'] = final_name
+    registered['routing_name'] = final_name
+    registered['original_name'] = requested_name
+    registered['annotations'] = annotations
+    registry[final_name] = registered
+    return final_name
+
+
+def merge_tool_registries(target: dict[str, dict], incoming: dict[str, dict], *, namespace: str) -> dict[str, dict]:
+    """Merge registries while keeping keys, schemas and routing names identical."""
+    for name, tool in incoming.items():
+        register_tool(target, name, tool, namespace=namespace)
+    return target
 
 
 def normalize_bearer_token(token: Any) -> str:
@@ -310,7 +366,8 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                     **await Tools.get_user_valves_by_id_and_user_id(tool_id, user.id)
                 )
 
-            for spec in tool.specs:
+            for cached_spec in tool.specs:
+                spec = copy.deepcopy(cached_spec)
                 # TODO: Fix hack for OpenAI API
                 # Some times breaks OpenAI but others don't. Leaving the comment
                 for val in spec.get('parameters', {}).get('properties', {}).values():
@@ -350,15 +407,9 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                         'file_handler': hasattr(module, 'file_handler') and module.file_handler,
                         'citation': hasattr(module, 'citation') and module.citation,
                     },
+                    'source_callable': tool_function,
                 }
-
-                # Handle function name collisions
-                while function_name in tools_dict:
-                    log.warning(f'Tool {function_name} already exists in another tools!')
-                    # Prepend tool ID to function name
-                    function_name = f'{tool_id}_{function_name}'
-
-                tools_dict[function_name] = tool_dict
+                register_tool(tools_dict, function_name, tool_dict, namespace=tool_id)
         else:
             if tool_id.startswith('server:'):
                 splits = tool_id.split(':')
@@ -409,7 +460,8 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                     if isinstance(function_name_filter_list, str):
                         function_name_filter_list = function_name_filter_list.split(',')
 
-                    for spec in specs:
+                    for cached_spec in specs:
+                        spec = copy.deepcopy(cached_spec)
                         function_name = spec['name']
                         if function_name_filter_list:
                             if not is_string_allowed(function_name, function_name_filter_list):
@@ -453,15 +505,13 @@ async def get_tools(request: Request, tool_ids: list[str], user: UserModel, extr
                             'spec': clean_openai_tool_schema(spec),
                             # Misc info
                             'type': 'external',
+                            'annotations': {
+                                'external_network': True,
+                                'destructive': True,
+                                'approval_required': True,
+                            },
                         }
-
-                        # Handle function name collisions
-                        while function_name in tools_dict:
-                            log.warning(f'Tool {function_name} already exists in another tools!')
-                            # Prepend server ID to function name
-                            function_name = f'{server_id}_{function_name}'
-
-                        tools_dict[function_name] = tool_dict
+                        register_tool(tools_dict, function_name, tool_dict, namespace=server_id)
 
                 else:
                     continue
@@ -700,12 +750,14 @@ async def get_builtin_tools(
         spec = convert_pydantic_model_to_openai_function_spec(pydantic_model)
         spec = clean_openai_tool_schema(spec)
 
-        tools_dict[func.__name__] = {
+        tool_dict = {
             'tool_id': f'builtin:{func.__name__}',
             'callable': callable,
+            'source_callable': func,
             'spec': spec,
             'type': 'builtin',
         }
+        register_tool(tools_dict, func.__name__, tool_dict, namespace='builtin')
 
     return tools_dict
 
@@ -1284,12 +1336,18 @@ async def get_terminal_tools(
         tool_function = await make_tool_function(function_name, server_data, headers, cookies)
         callable = await get_async_tool_function_and_apply_extra_params(tool_function, {})
 
-        tools_dict[function_name] = {
+        tool_dict = {
             'tool_id': f'terminal:{terminal_id}',
             'callable': callable,
             'spec': tool_spec,
             'type': 'terminal',
+            'annotations': {
+                'external_network': True,
+                'destructive': True,
+                'approval_required': True,
+            },
         }
+        register_tool(tools_dict, function_name, tool_dict, namespace=terminal_id)
 
     return tools_dict, system_prompt
 

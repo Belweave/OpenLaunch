@@ -9,6 +9,7 @@ from openlaunch.env import DATABASE_PASSWORD, DATABASE_URL, LOG_FORMAT
 from openlaunch.internal.db import enable_iam_token_auth, extract_ssl_params_from_url, reattach_ssl_params_to_url
 from openlaunch.models.auths import Auth
 from openlaunch.models.calendar import Calendar, CalendarEvent, CalendarEventAttendee  # noqa: F401
+from openlaunch.models.control_plane import DataConnection, QueryAudit, ToolProfile, ToolProfileAudit  # noqa: F401
 from sqlalchemy import create_engine, engine_from_config, pool
 
 alembic_config = alembic.context.config

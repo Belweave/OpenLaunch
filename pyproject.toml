@@ -38,6 +38,7 @@ dependencies = [
     "pyodbc==5.3.0",
     "snowflake-connector-python==4.7.1",
     "alembic==1.18.4",
+    "sqlglot==30.13.0",
 
     "pycrdt==0.13.1",
     "redis==8.0.0",

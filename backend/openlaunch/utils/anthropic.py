@@ -817,7 +817,17 @@ def convert_anthropic_to_openai_payload(anthropic_payload: dict) -> dict:
         openai_payload['max_tokens'] = anthropic_payload['max_tokens']
 
     # Common parameters
-    for param in ('temperature', 'top_p', 'top_k', 'stop_sequences', 'stream', 'metadata', 'service_tier'):
+    for param in (
+        'temperature',
+        'top_p',
+        'top_k',
+        'stop_sequences',
+        'stream',
+        'metadata',
+        'service_tier',
+        'tool_profile',
+        'tool_profile_id',
+    ):
         if param in anthropic_payload:
             if param == 'stop_sequences':
                 openai_payload['stop'] = anthropic_payload[param]

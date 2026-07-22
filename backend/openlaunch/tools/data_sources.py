@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import threading
+import time as monotonic_time
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
@@ -29,7 +30,16 @@ from openlaunch.env import (
     SQL_DATABASE_URL,
 )
 from openlaunch.models.groups import Groups
+from openlaunch.models.control_plane import ControlPlanes, get_persisted_runtime_connections
+from openlaunch.tools.data_source_sdk import (
+    AdapterCapabilities,
+    DataSourceAdapter,
+    get_adapter,
+    register_adapter,
+)
+from openlaunch.tools.sql_policy import SQLPolicyError, apply_result_governance, enforce_sql_policy
 from openlaunch.utils.access_control import has_access
+from openlaunch.utils.tool_executor import tool_annotations
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +92,12 @@ def get_configured_data_sources() -> list[dict[str, Any]]:
         except Exception as exc:
             log.error("Data source configuration file is invalid (%s)", type(exc).__name__)
 
+    try:
+        configured.extend(get_persisted_runtime_connections())
+    except Exception as exc:
+        # Startup/migration windows must not break environment-backed deployments.
+        log.debug("Persisted data-source registry is unavailable (%s)", type(exc).__name__)
+
     # Backward compatibility for the original single-PostgreSQL integration.
     if ENABLE_SQL_DATABASE_TOOL and SQL_DATABASE_URL.strip():
         configured.append(
@@ -130,6 +146,10 @@ async def _user_can_access(connection: dict[str, Any], user: dict[str, Any] | No
     user = user or {}
     if user.get("role") == "admin":
         return True
+    scope_type = connection.get('scope_type', 'instance')
+    scope_id = str(connection.get('scope_id', '*'))
+    if scope_type != 'instance' and str(user.get(scope_type) or user.get(f'{scope_type}_id') or '') != scope_id:
+        return False
     user_id = str(user.get("id") or "")
     if not user_id:
         return False
@@ -152,6 +172,9 @@ async def _get_authorized_data_source(
     )
     if connection is None or not await _user_can_access(connection, user):
         # Deliberately do not distinguish missing from unauthorized connections.
+        raise DataSourceValidationError("The requested data source is not available.")
+    profile_grants = (user or {}).get('tool_profile_data_source_grants')
+    if profile_grants is not None and connection_id not in profile_grants:
         raise DataSourceValidationError("The requested data source is not available.")
     return connection
 
@@ -445,7 +468,7 @@ def _execute_snowflake(connection: dict[str, Any], query: str, parameters: dict[
             cursor.close()
 
 
-def _execute_sql(
+def _execute_sql_provider(
     connection: dict[str, Any],
     query: str,
     parameters: dict[str, Any] | tuple[Any, ...] | None = None,
@@ -459,6 +482,22 @@ def _execute_sql(
     raise DataSourceValidationError("This data source does not support SQL queries.")
 
 
+def _execute_sql(
+    connection: dict[str, Any],
+    query: str,
+    parameters: dict[str, Any] | tuple[Any, ...] | None = None,
+) -> str:
+    return get_adapter(connection['type']).query(connection, query=query, parameters=parameters)
+
+
+@tool_annotations(
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    external_network=False,
+    approval_required=False,
+    timeout_seconds=10,
+)
 async def list_data_sources(__user__: dict[str, Any] | None = None) -> str:
     """
     List the named data sources available to the current user. This returns only safe
@@ -479,6 +518,14 @@ async def list_data_sources(__user__: dict[str, Any] | None = None) -> str:
     return json.dumps({"data_sources": result}, ensure_ascii=False)
 
 
+@tool_annotations(
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    external_network=True,
+    approval_required=False,
+    timeout_seconds=30,
+)
 async def inspect_data_source(
     connection_id: str,
     catalog: str | None = None,
@@ -538,10 +585,19 @@ async def inspect_data_source(
         return json.dumps({"error": "The data source inspection failed."})
 
 
+@tool_annotations(
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    external_network=True,
+    approval_required=False,
+    timeout_seconds=35,
+)
 async def query_data_source(
     connection_id: str,
     query: str,
     __user__: dict[str, Any] | None = None,
+    __metadata__: dict[str, Any] | None = None,
 ) -> str:
     """
     Run one read-only query against a named SQL data source. Supports PostgreSQL,
@@ -552,22 +608,67 @@ async def query_data_source(
     :param query: One read-only SQL statement
     :return: JSON with columns, rows, row_count, and truncation status
     """
+    started = monotonic_time.monotonic()
+    started_epoch = int(monotonic_time.time())
+    connection = None
+    decision = None
+    status = 'denied'
+    result = ''
     try:
         connection = await _get_authorized_data_source(connection_id, __user__)
         if connection["type"] not in SQL_DATA_SOURCE_TYPES:
             raise DataSourceValidationError("This data source does not support SQL queries.")
-        normalized = validate_readonly_query(query)
-        return await asyncio.wait_for(
-            asyncio.to_thread(_execute_sql, connection, normalized),
+        if len(query) > DATA_SOURCE_MAX_QUERY_CHARACTERS:
+            raise DataSourceValidationError(f"The query exceeds the {DATA_SOURCE_MAX_QUERY_CHARACTERS}-character limit.")
+        decision = enforce_sql_policy(query, connection['type'], connection.get('policy'))
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_execute_sql, connection, decision.query),
             timeout=DATA_SOURCE_QUERY_TIMEOUT_SECONDS + 2,
         )
+        result = apply_result_governance(result, connection.get('policy'))
+        status = 'success'
+        return result
+    except SQLPolicyError as exc:
+        return json.dumps({'error': str(exc)}, ensure_ascii=False)
     except DataSourceValidationError as exc:
         return json.dumps({"error": str(exc)}, ensure_ascii=False)
     except TimeoutError:
+        status = 'timeout'
         return json.dumps({"error": "The data source query timed out."})
     except Exception as exc:
+        status = 'error'
         log.error("Data source query failed (%s)", type(exc).__name__)
         return json.dumps({"error": "The data source query failed."})
+    finally:
+        if connection:
+            try:
+                payload = json.loads(result) if result else {}
+                policy = connection.get('policy') or {}
+                await ControlPlanes.append_query_audit(
+                    {
+                        'actor_id': str((__user__ or {}).get('id') or ''),
+                        'connection_id': connection_id,
+                        'provider_type': connection['type'],
+                        'request_id': str(
+                            (__metadata__ or {}).get('request_id')
+                            or (__metadata__ or {}).get('message_id')
+                            or ''
+                        ),
+                        'tool_call_id': str((__metadata__ or {}).get('tool_call_id') or ''),
+                        'objects': list(decision.objects) if decision else [],
+                        'policy_decision': 'allow' if decision else 'deny',
+                        'query_fingerprint': decision.fingerprint if decision else '',
+                        'raw_sql': query if policy.get('audit_raw_sql', False) else None,
+                        'started_at': started_epoch,
+                        'ended_at': int(monotonic_time.time()),
+                        'duration_ms': int((monotonic_time.monotonic() - started) * 1000),
+                        'row_count': int(payload.get('row_count') or 0),
+                        'result_bytes': len(result.encode('utf-8')) if result else 0,
+                        'status': status,
+                    }
+                )
+            except Exception as exc:
+                log.error('Query audit append failed (%s)', type(exc).__name__)
 
 
 RedisReadOperation = Literal[
@@ -669,6 +770,14 @@ def _execute_redis_read(
         client.close()
 
 
+@tool_annotations(
+    read_only=True,
+    destructive=False,
+    idempotent=True,
+    external_network=True,
+    approval_required=False,
+    timeout_seconds=35,
+)
 async def read_redis_data_source(
     connection_id: str,
     operation: RedisReadOperation,
@@ -699,14 +808,14 @@ async def read_redis_data_source(
             raise DataSourceValidationError("This data source is not Redis.")
         return await asyncio.wait_for(
             asyncio.to_thread(
-                _execute_redis_read,
+                get_adapter(connection['type']).query,
                 connection,
                 operation,
-                key,
-                pattern,
-                field,
-                max(0, start),
-                stop,
+                key=key,
+                pattern=pattern,
+                field=field,
+                start=max(0, start),
+                stop=stop,
             ),
             timeout=DATA_SOURCE_QUERY_TIMEOUT_SECONDS + 2,
         )
@@ -717,3 +826,48 @@ async def read_redis_data_source(
     except Exception as exc:
         log.error("Redis data source read failed (%s)", type(exc).__name__)
         return json.dumps({"error": "The Redis data source read failed."})
+
+
+class SQLDataSourceAdapter(DataSourceAdapter):
+    provider_types = ('postgresql', 'sql_server', 'azure_sql', 'snowflake')
+    capabilities = AdapterCapabilities(
+        inspect_schema=True,
+        query=True,
+        supports_cancellation=True,
+        supports_explain=True,
+    )
+
+    def test_connection(self, connection: dict[str, Any]) -> None:
+        _execute_sql_provider(connection, 'SELECT 1')
+
+    def query(self, connection: dict[str, Any], operation: str = '', **options) -> str:
+        query = str(options.get('query') or operation)
+        return _execute_sql_provider(connection, query, options.get('parameters'))
+
+
+class RedisDataSourceAdapter(DataSourceAdapter):
+    provider_types = ('redis',)
+    capabilities = AdapterCapabilities(
+        bounded_operations=(
+            'scan', 'type', 'ttl', 'get', 'hget', 'hgetall', 'lrange', 'smembers', 'zrange', 'xrange'
+        ),
+        supports_cancellation=True,
+    )
+
+    def test_connection(self, connection: dict[str, Any]) -> None:
+        _execute_redis_read(connection, 'scan', None, '*', None, 0, 0)
+
+    def query(self, connection: dict[str, Any], operation: str, **options) -> str:
+        return _execute_redis_read(
+            connection,
+            operation,
+            options.get('key'),
+            options.get('pattern'),
+            options.get('field'),
+            options.get('start', 0),
+            options.get('stop'),
+        )
+
+
+register_adapter(SQLDataSourceAdapter())
+register_adapter(RedisDataSourceAdapter())

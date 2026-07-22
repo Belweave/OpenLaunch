@@ -22,6 +22,7 @@
 	import Evaluations from './Settings/Evaluations.svelte';
 	import CodeExecution from './Settings/CodeExecution.svelte';
 	import Integrations from './Settings/Integrations.svelte';
+	import DataSources from './Settings/DataSources.svelte';
 
 	import ChartBar from '../icons/ChartBar.svelte';
 	import DocumentChartBar from '../icons/DocumentChartBar.svelte';
@@ -43,6 +44,7 @@
 			'models',
 			'evaluations',
 			'integrations',
+			'data-sources',
 			'documents',
 			'web',
 			'code-execution',
@@ -170,6 +172,12 @@
 				'retrieval',
 				'sources'
 			]
+		},
+		{
+			id: 'data-sources',
+			title: 'Data Sources',
+			route: '/admin/settings/data-sources',
+			keywords: ['data sources', 'sql', 'postgresql', 'snowflake', 'redis', 'tool profiles', 'audit']
 		},
 		{
 			id: 'documents',
@@ -577,6 +585,8 @@
 			<Evaluations />
 		{:else if selectedTab === 'integrations'}
 			<Integrations />
+		{:else if selectedTab === 'data-sources'}
+			<DataSources />
 		{:else if selectedTab === 'documents'}
 			<Documents
 				on:save={async () => {

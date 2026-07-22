@@ -188,6 +188,18 @@ class AnthropicConversionTests(unittest.TestCase):
         self.assertEqual([block['tool_use_id'] for block in tool_results], ['call_search', 'call_code'])
         self.assertTrue(all(block['type'] == 'tool_result' for block in tool_results))
 
+    def test_messages_payload_preserves_explicit_tool_profile(self):
+        from openlaunch.utils.anthropic import convert_anthropic_to_openai_payload
+
+        converted = convert_anthropic_to_openai_payload(
+            {
+                'model': 'claude-test',
+                'messages': [{'role': 'user', 'content': 'Use the approved tools.'}],
+                'tool_profile': 'readonly-analytics',
+            }
+        )
+        self.assertEqual(converted['tool_profile'], 'readonly-analytics')
+
     def test_converts_response_tools_usage_and_typed_errors(self):
         result = convert_anthropic_to_openai_response(
             {

@@ -1033,6 +1033,33 @@ if CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS == -1:
     CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS = None
 
 
+def _bounded_int_env(name: str, default: int, minimum: int = 1) -> int:
+    """Read a positive integer without letting invalid deployment config break startup."""
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+# Secure tool-execution limits. Per-request overrides may only lower these values.
+TOOL_EXECUTOR_GLOBAL_CONCURRENCY = _bounded_int_env('TOOL_EXECUTOR_GLOBAL_CONCURRENCY', 16)
+TOOL_EXECUTOR_REQUEST_CONCURRENCY = _bounded_int_env('TOOL_EXECUTOR_REQUEST_CONCURRENCY', 4)
+TOOL_EXECUTOR_DEFAULT_TIMEOUT_SECONDS = _bounded_int_env('TOOL_EXECUTOR_DEFAULT_TIMEOUT_SECONDS', 30)
+TOOL_EXECUTOR_MAX_RESULT_BYTES_PER_TURN = _bounded_int_env(
+    'TOOL_EXECUTOR_MAX_RESULT_BYTES_PER_TURN', 256 * 1024
+)
+TOOL_EXECUTOR_MAX_RESULT_BYTES_PER_REQUEST = _bounded_int_env(
+    'TOOL_EXECUTOR_MAX_RESULT_BYTES_PER_REQUEST', 1024 * 1024
+)
+TOOL_EXECUTOR_MAX_RESULT_TOKENS_PER_TURN = _bounded_int_env(
+    'TOOL_EXECUTOR_MAX_RESULT_TOKENS_PER_TURN', 64 * 1024
+)
+TOOL_EXECUTOR_MAX_RESULT_TOKENS_PER_REQUEST = _bounded_int_env(
+    'TOOL_EXECUTOR_MAX_RESULT_TOKENS_PER_REQUEST', 256 * 1024
+)
+TOOL_EXECUTOR_MAX_CALLS_PER_REQUEST = _bounded_int_env('TOOL_EXECUTOR_MAX_CALLS_PER_REQUEST', 64)
+
+
 # WARNING: Experimental. Only enable if your upstream Responses API endpoint
 # supports stateful sessions (i.e. server-side response storage with
 # previous_response_id anchoring). Most proxies and third-party endpoints

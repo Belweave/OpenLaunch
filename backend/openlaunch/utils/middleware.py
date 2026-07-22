@@ -125,7 +125,10 @@ from openlaunch.utils.tools import (
     get_terminal_tools,
     get_tools,
     get_updated_tool_function,
+    merge_tool_registries,
+    register_tool,
 )
+from openlaunch.utils.tool_executor import ToolCall, ToolExecutor
 from openlaunch.utils.webhook import post_webhook
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
@@ -1164,50 +1167,53 @@ async def chat_completion_tools_handler(
 
             result = json.loads(content)
 
-            async def tool_call_handler(tool_call):
+            async def _legacy_direct_executor(name, params, tool):
+                return await event_caller(
+                    {
+                        'type': 'execute:tool',
+                        'data': {
+                            'id': str(uuid4()),
+                            'name': name,
+                            'params': params,
+                            'server': tool.get('server', {}),
+                            'session_id': metadata.get('session_id'),
+                        },
+                    }
+                )
+
+            execution_options = metadata.get('tool_execution') or {}
+
+            async def _resolve_legacy_callable(tool, call):
+                return await get_updated_tool_function(
+                    function=tool['callable'],
+                    extra_params={
+                        '__metadata__': {
+                            **metadata,
+                            'tool_call_id': call.call_id,
+                        }
+                    },
+                )
+
+            legacy_executor = ToolExecutor(
+                tools,
+                request_concurrency=execution_options.get('concurrency'),
+                turn_budget_bytes=execution_options.get('turn_result_bytes'),
+                request_budget_bytes=execution_options.get('request_result_bytes'),
+                turn_budget_tokens=execution_options.get('turn_result_tokens'),
+                request_budget_tokens=execution_options.get('request_result_tokens'),
+                direct_executor=_legacy_direct_executor,
+                callable_resolver=_resolve_legacy_callable,
+            )
+
+            async def tool_call_handler(execution):
                 nonlocal skip_files
 
-                log.debug(f'{tool_call=}')
-
-                tool_function_name = tool_call.get('name', None)
-                if tool_function_name not in tools:
-                    log.warning(f'Tool "{tool_function_name}" not found')
-                    return
-
-                tool_function_params = tool_call.get('parameters', {})
-
-                tool = None
-                tool_type = ''
-                direct_tool = False
-
-                try:
-                    tool = tools[tool_function_name]
-                    tool_type = tool.get('type', '')
-                    direct_tool = tool.get('direct', False)
-
-                    spec = tool.get('spec', {})
-                    allowed_params = spec.get('parameters', {}).get('properties', {}).keys()
-                    tool_function_params = {k: v for k, v in tool_function_params.items() if k in allowed_params}
-
-                    if tool.get('direct', False):
-                        tool_result = await event_caller(
-                            {
-                                'type': 'execute:tool',
-                                'data': {
-                                    'id': str(uuid4()),
-                                    'name': tool_function_name,
-                                    'params': tool_function_params,
-                                    'server': tool.get('server', {}),
-                                    'session_id': metadata.get('session_id', None),
-                                },
-                            }
-                        )
-                    else:
-                        tool_function = tool['callable']
-                        tool_result = await tool_function(**tool_function_params)
-
-                except Exception as e:
-                    tool_result = str(e)
+                tool_function_name = execution.name
+                tool_function_params = execution.arguments
+                tool = tools.get(tool_function_name)
+                tool_type = tool.get('type', '') if tool else ''
+                direct_tool = tool.get('direct', False) if tool else False
+                tool_result = execution.content
 
                 tool_result, tool_result_files, tool_result_embeds = await process_tool_result(
                     request,
@@ -1270,21 +1276,28 @@ async def chat_completion_tools_handler(
                         }
                     )
 
-                    if tools[tool_function_name].get('metadata', {}).get('file_handler', False):
+                    if tool and tool.get('metadata', {}).get('file_handler', False):
                         skip_files = True
 
-            # check if "tool_calls" in result
-            if result.get('tool_calls'):
-                for tool_call in result.get('tool_calls'):
-                    await tool_call_handler(tool_call)
-            else:
-                await tool_call_handler(result)
+            emitted_calls = result.get('tool_calls') or [result]
+            executions = await legacy_executor.execute_batch(
+                [
+                    ToolCall(
+                        call_id=str(tool_call.get('id') or uuid4()),
+                        name=tool_call.get('name', ''),
+                        arguments=tool_call.get('parameters', {}),
+                    )
+                    for tool_call in emitted_calls
+                ]
+            )
+            for execution in executions:
+                await tool_call_handler(execution)
 
         except Exception as e:
-            log.debug(f'Error: {e}')
+            log.debug('Legacy tool result processing failed (%s)', type(e).__name__)
             content = None
     except Exception as e:
-        log.debug(f'Error: {e}')
+        log.debug('Legacy tool handling failed (%s)', type(e).__name__)
         content = None
 
     log.debug(f'tool_contexts: {sources}')
@@ -2312,7 +2325,14 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     extra_params = {
         '__event_emitter__': event_emitter,
         '__event_call__': event_caller,
-        '__user__': user.model_dump() if isinstance(user, UserModel) else {},
+        '__user__': {
+            **(user.model_dump() if isinstance(user, UserModel) else {}),
+            **{
+                key: getattr(request.state, key)
+                for key in ('organization', 'organization_id', 'workspace', 'workspace_id')
+                if getattr(request.state, key, None)
+            },
+        },
         '__metadata__': metadata,
         '__oauth_token__': await get_system_oauth_token(request, user),
         '__request__': request,
@@ -2498,6 +2518,60 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     )
 
     tool_ids = form_data.pop('tool_ids', None)
+    tool_execution = form_data.pop('tool_execution', {})
+    if not isinstance(tool_execution, dict):
+        tool_execution = {}
+    selected_tool_profile = form_data.pop('tool_profile', form_data.pop('tool_profile_id', None))
+    tool_profile_bundle = None
+    if selected_tool_profile:
+        from openlaunch.models.control_plane import ControlPlanes
+
+        auth_token = ''
+        authorization = request.headers.get('authorization', '')
+        if authorization.lower().startswith('bearer '):
+            auth_token = authorization[7:].strip()
+        elif getattr(request.state, 'token', None):
+            auth_token = request.state.token.credentials
+        api_credential_id = await ControlPlanes.get_api_credential_id(auth_token)
+
+        tool_profile_bundle = await ControlPlanes.resolve_profile(
+            str(selected_tool_profile),
+            user_id=user.id,
+            model_id=form_data.get('model', ''),
+            scopes={
+                **{
+                    key: str(getattr(request.state, f'{key}_id'))
+                    for key in ('organization', 'workspace', 'service_account')
+                    if getattr(request.state, f'{key}_id', None)
+                },
+                **({'api_credential': api_credential_id} if api_credential_id else {}),
+            },
+        )
+        await ControlPlanes.append_profile_audit(
+            {
+                'profile_id': str(selected_tool_profile),
+                'actor_id': user.id,
+                'api_credential_id': api_credential_id or '',
+                'request_id': str(metadata.get('request_id') or metadata.get('message_id') or ''),
+                'endpoint': request.url.path,
+                'outcome': 'authorized' if tool_profile_bundle is not None else 'denied',
+            }
+        )
+        if tool_profile_bundle is None:
+            raise HTTPException(status_code=403, detail='The requested tool profile is unavailable.')
+        log.info('Tool profile selected (profile=%s actor=%s)', selected_tool_profile, user.id)
+        if tool_profile_bundle.get('empty'):
+            payload_tools = []
+            form_data['tools'] = []
+            tool_ids = []
+        else:
+            # Profiles are explicit bundles: caller-supplied IDs cannot expand them.
+            tool_ids = list(dict.fromkeys(tool_profile_bundle.get('tool_ids') or []))
+            payload_tools = None
+            form_data.pop('tools', None)
+        extra_params['__user__']['tool_profile_data_source_grants'] = list(
+            tool_profile_bundle.get('data_source_grants') or []
+        )
     terminal_id = form_data.pop('terminal_id', None)
     files = form_data.pop('files', None)
     form_data.pop('folder_id', None)
@@ -2516,7 +2590,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     available_skills = []
     view_skill_ids = []
     use_builtin_tools = (
-        bool(metadata.get('session_id'))
+        (bool(metadata.get('session_id')) or bool((tool_profile_bundle or {}).get('builtins')))
         and metadata.get('params', {}).get('function_calling') != 'legacy'
         and (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('builtin_tools', True)
     )
@@ -2597,8 +2671,10 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         'terminal_id': terminal_id,
         'files': files,
         'features': features,
+        'tool_execution': tool_execution,
     }
     form_data['metadata'] = metadata
+    extra_params['__metadata__'] = metadata
 
     # When the caller provides an explicit `tools` key in the request body,
     # skip all server-side tool resolution and pass the caller's tools through
@@ -2649,18 +2725,24 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
                             tool_function = await make_tool_function(client, tool_spec['name'])
 
-                            mcp_tools_dict[f'{server_id}_{tool_spec["name"]}'] = {
+                            mcp_name = f'{server_id}_{tool_spec["name"]}'
+                            register_tool(mcp_tools_dict, mcp_name, {
                                 'spec': {
                                     **tool_spec,
-                                    'name': f'{server_id}_{tool_spec["name"]}',
+                                    'name': mcp_name,
                                 },
                                 'callable': tool_function,
                                 'type': 'mcp',
                                 'client': client,
                                 'direct': False,
-                            }
+                                'annotations': {
+                                    'external_network': True,
+                                    'destructive': True,
+                                    'approval_required': True,
+                                },
+                            }, namespace=server_id)
                     except Exception as e:
-                        log.debug(e)
+                        log.debug('MCP tool discovery failed (%s)', type(e).__name__)
                         if event_emitter:
                             await event_emitter(
                                 {
@@ -2683,7 +2765,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             )
 
             if mcp_tools_dict:
-                tools_dict = {**tools_dict, **mcp_tools_dict}
+                merge_tool_registries(tools_dict, mcp_tools_dict, namespace='mcp')
 
         # Resolve terminal tools if terminal_id is set (outside tool_ids check
         # so system terminals work even when no other tools are selected)
@@ -2702,7 +2784,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     terminal_tools = terminal_result
                     system_prompt = None
                 if terminal_tools:
-                    tools_dict = {**tools_dict, **terminal_tools}
+                    merge_tool_registries(tools_dict, terminal_tools, namespace='terminal')
                 if system_prompt:
                     form_data['messages'] = add_or_update_system_message(
                         system_prompt,
@@ -2710,7 +2792,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         append=True,
                     )
             except Exception as e:
-                log.exception(e)
+                log.error('Terminal tool discovery failed (%s)', type(e).__name__)
 
         if direct_tool_servers:
             for tool_server in direct_tool_servers:
@@ -2725,11 +2807,17 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 tool_specs = tool_server.pop('specs', [])
 
                 for tool in tool_specs:
-                    tools_dict[tool['name']] = {
+                    register_tool(tools_dict, tool['name'], {
                         'spec': tool,
                         'direct': True,
                         'server': tool_server,
-                    }
+                        'type': 'external',
+                        'annotations': {
+                            'external_network': True,
+                            'destructive': True,
+                            'approval_required': True,
+                        },
+                    }, namespace=str(tool_server.get('id', 'direct')))
 
         if mcp_clients:
             metadata['mcp_clients'] = mcp_clients
@@ -2751,9 +2839,15 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 features,
                 model,
             )
+            requested_builtins = set((tool_profile_bundle or {}).get('builtins') or [])
+            if tool_profile_bundle is not None:
+                builtin_tools = {
+                    name: tool
+                    for name, tool in builtin_tools.items()
+                    if name in requested_builtins or tool.get('tool_id') in requested_builtins
+                }
             for name, tool_dict in builtin_tools.items():
-                if name not in tools_dict:
-                    tools_dict[name] = tool_dict
+                register_tool(tools_dict, name, tool_dict, namespace='builtin')
 
         if tools_dict:
             # Always store resolved tools in metadata so downstream consumers
@@ -4538,7 +4632,7 @@ async def streaming_chat_response_handler(response, ctx):
                             if done:
                                 pass
                             else:
-                                log.debug(f'Error: {e}')
+                                log.debug('Streaming response parsing failed (%s)', type(e).__name__)
                                 continue
                     await flush_pending_delta_data()
 
@@ -4630,6 +4724,44 @@ async def streaming_chat_response_handler(response, ctx):
                         get_content_from_message(original_system_message) if original_system_message else None
                     )
 
+                async def _execute_direct_tool(name, params, tool):
+                    return await event_caller(
+                        {
+                            'type': 'execute:tool',
+                            'data': {
+                                'id': str(uuid4()),
+                                'name': name,
+                                'params': params,
+                                'server': tool.get('server', {}),
+                                'session_id': metadata.get('session_id'),
+                            },
+                        }
+                    )
+
+                async def _resolve_native_callable(tool, call):
+                    return await get_updated_tool_function(
+                        function=tool['callable'],
+                        extra_params={
+                            '__messages__': form_data.get('messages', []),
+                            '__files__': metadata.get('files', []),
+                            '__metadata__': {
+                                **metadata,
+                                'tool_call_id': call.call_id,
+                            },
+                        },
+                    )
+
+                secure_tool_executor = ToolExecutor(
+                    metadata.get('tools', {}),
+                    request_concurrency=(metadata.get('tool_execution') or {}).get('concurrency'),
+                    turn_budget_bytes=(metadata.get('tool_execution') or {}).get('turn_result_bytes'),
+                    request_budget_bytes=(metadata.get('tool_execution') or {}).get('request_result_bytes'),
+                    turn_budget_tokens=(metadata.get('tool_execution') or {}).get('turn_result_tokens'),
+                    request_budget_tokens=(metadata.get('tool_execution') or {}).get('request_result_tokens'),
+                    direct_executor=_execute_direct_tool,
+                    callable_resolver=_resolve_native_callable,
+                )
+
                 while tool_calls and (
                     CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS is None
                     or tool_call_iterations < CHAT_RESPONSE_MAX_TOOL_CALL_ITERATIONS
@@ -4666,86 +4798,27 @@ async def streaming_chat_response_handler(response, ctx):
                     )
 
                     tools = metadata.get('tools', {})
-
+                    execution_results = await secure_tool_executor.execute_batch(
+                        [
+                            ToolCall(
+                                call_id=tool_call.get('id', ''),
+                                name=tool_call.get('function', {}).get('name', ''),
+                                arguments=tool_call.get('function', {}).get('arguments', '{}'),
+                            )
+                            for tool_call in response_tool_calls
+                        ]
+                    )
                     results = []
 
-                    for tool_call in response_tool_calls:
-                        tool_call_id = tool_call.get('id', '')
-                        tool_function_name = tool_call.get('function', {}).get('name', '')
-                        tool_args = tool_call.get('function', {}).get('arguments', '{}')
-
-                        tool_function_params = {}
-                        if tool_args and tool_args.strip():
-                            try:
-                                # json.loads cannot be used because some models do not produce valid JSON
-                                tool_function_params = ast.literal_eval(tool_args)
-                            except Exception as e:
-                                log.debug(e)
-                                # Fallback to JSON parsing
-                                try:
-                                    tool_function_params = json.loads(tool_args)
-                                except Exception as e:
-                                    log.error(f'Error parsing tool call arguments: {tool_args}')
-                                    results.append(
-                                        {
-                                            'tool_call_id': tool_call_id,
-                                            'content': f'Error: Tool call arguments could not be parsed. The model generated malformed or incomplete JSON for `{tool_function_name}`. Please try again.',
-                                        }
-                                    )
-                                    continue
-
-                        # Ensure arguments are valid JSON for downstream LLM integrations
-                        log.debug(f'Parsed args from {tool_args} to {tool_function_params}')
+                    for tool_call, execution in zip(response_tool_calls, execution_results):
+                        tool_call_id = execution.call_id
+                        tool_function_name = execution.name
+                        tool_function_params = execution.arguments
                         tool_call.setdefault('function', {})['arguments'] = json.dumps(tool_function_params)
-
-                        tool_result = None
-                        tool = None
-                        tool_type = None
-                        direct_tool = False
-
-                        if tool_function_name in tools:
-                            tool = tools[tool_function_name]
-                            spec = tool.get('spec', {})
-
-                            tool_type = tool.get('type', '')
-                            direct_tool = tool.get('direct', False)
-
-                            try:
-                                allowed_params = spec.get('parameters', {}).get('properties', {}).keys()
-
-                                tool_function_params = {
-                                    k: v for k, v in tool_function_params.items() if k in allowed_params
-                                }
-
-                                if direct_tool:
-                                    tool_result = await event_caller(
-                                        {
-                                            'type': 'execute:tool',
-                                            'data': {
-                                                'id': str(uuid4()),
-                                                'name': tool_function_name,
-                                                'params': tool_function_params,
-                                                'server': tool.get('server', {}),
-                                                'session_id': metadata.get('session_id', None),
-                                            },
-                                        }
-                                    )
-
-                                else:
-                                    tool_function = await get_updated_tool_function(
-                                        function=tool['callable'],
-                                        extra_params={
-                                            '__messages__': form_data.get('messages', []),
-                                            '__files__': metadata.get('files', []),
-                                        },
-                                    )
-
-                                    tool_result = await tool_function(**tool_function_params)
-
-                            except Exception as e:
-                                tool_result = str(e)
-                        else:
-                            tool_result = f'Error: Tool "{tool_function_name}" not found.'
+                        tool = tools.get(tool_function_name)
+                        tool_type = tool.get('type', '') if tool else ''
+                        direct_tool = tool.get('direct', False) if tool else False
+                        tool_result = execution.content
 
                         tool_result, tool_result_files, tool_result_embeds = await process_tool_result(
                             request,
@@ -4786,7 +4859,7 @@ async def streaming_chat_response_handler(response, ctx):
                                 )
                                 tool_call_sources.extend(citation_sources)
                             except Exception as e:
-                                log.exception(f'Error extracting citation source: {e}')
+                                log.error('Tool citation extraction failed (%s)', type(e).__name__)
 
                         results.append(
                             {
