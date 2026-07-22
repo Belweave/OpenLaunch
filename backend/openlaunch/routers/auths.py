@@ -71,11 +71,12 @@ from openlaunch.utils.auth import (
     validate_password,
     verify_password,
 )
+from openlaunch.utils.branding import normalize_app_name
 from openlaunch.utils.groups import apply_default_group_assignment
 from openlaunch.utils.misc import parse_duration, validate_email_format
 from openlaunch.utils.rate_limit import RateLimiter
 from openlaunch.utils.redis import get_redis_client
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -97,6 +98,7 @@ signin_rate_limiter = RateLimiter(redis_client=get_redis_client(), limit=5 * 3, 
 ADMIN_CONFIG_KEYS = {
     'SHOW_ADMIN_DETAILS': 'auth.admin.show',
     'ADMIN_EMAIL': 'auth.admin.email',
+    'APP_NAME': 'ui.name',
     'OPENLAUNCH_URL': 'openlaunch.url',
     'ENABLE_SIGNUP': 'ui.enable_signup',
     'ENABLE_API_KEYS': 'auth.enable_api_keys',
@@ -1135,6 +1137,7 @@ async def get_admin_config(request: Request, user=Depends(get_admin_user)):
 class AdminConfig(BaseModel):
     SHOW_ADMIN_DETAILS: bool
     ADMIN_EMAIL: str | None = None
+    APP_NAME: str
     OPENLAUNCH_URL: str
     ENABLE_SIGNUP: bool
     ENABLE_API_KEYS: bool
@@ -1161,6 +1164,11 @@ class AdminConfig(BaseModel):
     PENDING_USER_OVERLAY_CONTENT: str | None = None
     RESPONSE_WATERMARK: str | None = None
 
+    @field_validator('APP_NAME')
+    @classmethod
+    def validate_app_name(cls, value: str) -> str:
+        return normalize_app_name(value)
+
 
 @router.post('/admin/config')
 async def update_admin_config(request: Request, form_data: AdminConfig, user=Depends(get_admin_user)):
@@ -1181,6 +1189,7 @@ async def update_admin_config(request: Request, form_data: AdminConfig, user=Dep
         updates.pop('auth.jwt_expiry', None)
 
     await Config.upsert(updates)
+    request.app.state.OPENLAUNCH_NAME = form_data.APP_NAME
     return await get_config_values(ADMIN_CONFIG_KEYS)
 
 

@@ -11,6 +11,7 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from uuid import uuid4
+from xml.sax.saxutils import escape as escape_xml
 
 import aiohttp
 import anyio.to_thread
@@ -216,6 +217,7 @@ from openlaunch.utils.auth import (
     get_license_data,
     get_verified_user,
 )
+from openlaunch.utils.branding import normalize_app_name
 from openlaunch.utils.chat import (
     chat_completed as chat_completed_handler,
 )
@@ -537,6 +539,12 @@ app.state.BASE_MODELS = []
 
 
 async def initialize_runtime_config(app: FastAPI):
+    try:
+        app.state.OPENLAUNCH_NAME = normalize_app_name(await Config.get('ui.name', OPENLAUNCH_NAME))
+    except ValueError as exc:
+        log.warning('Invalid persisted application name; using the configured default: %s', exc)
+        app.state.OPENLAUNCH_NAME = OPENLAUNCH_NAME
+
     # Migrate legacy access_control → access_grants on boot.
     from openlaunch.utils.access_control import migrate_access_control
 
@@ -2526,10 +2534,11 @@ async def get_manifest_json():
 @app.get('/opensearch.xml')
 async def get_opensearch_xml():
     openlaunch_url = await Config.get('openlaunch.url')
+    app_name = escape_xml(app.state.OPENLAUNCH_NAME)
     xml_content = rf"""
     <OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/" xmlns:moz="http://www.mozilla.org/2006/browser/search/">
-    <ShortName>{app.state.OPENLAUNCH_NAME}</ShortName>
-    <Description>Search {app.state.OPENLAUNCH_NAME}</Description>
+    <ShortName>{app_name}</ShortName>
+    <Description>Search {app_name}</Description>
     <InputEncoding>UTF-8</InputEncoding>
     <Image width="16" height="16" type="image/x-icon">{openlaunch_url}/static/favicon.png</Image>
     <Url type="text/html" method="get" template="{openlaunch_url}/?q={'{searchTerms}'}"/>

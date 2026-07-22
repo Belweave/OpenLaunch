@@ -3014,6 +3014,7 @@ DEFAULT_CONFIG = {
     'audio.tts.mistral.api_key': AUDIO_TTS_MISTRAL_API_KEY,
     'audio.tts.mistral.api_base_url': AUDIO_TTS_MISTRAL_API_BASE_URL,
     'openlaunch.url': OPENLAUNCH_URL,
+    'ui.name': OPENLAUNCH_NAME,
     'ui.enable_signup': ENABLE_SIGNUP,
     'ui.enable_login_form': ENABLE_LOGIN_FORM,
     'ui.enable_password_change_form': ENABLE_PASSWORD_CHANGE_FORM,

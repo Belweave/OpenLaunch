@@ -13,7 +13,7 @@
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { OPENLAUNCH_BUILD_HASH, OPENLAUNCH_VERSION } from '$lib/constants';
-	import { banners as _banners, config, showChangelog } from '$lib/stores';
+	import { OPENLAUNCH_NAME, banners as _banners, config, showChangelog } from '$lib/stores';
 	import type { Banner } from '$lib/types';
 	import { compareVersion } from '$lib/utils';
 	import { onMount, getContext } from 'svelte';
@@ -64,7 +64,9 @@
 
 		await updateBanners();
 
-		await config.set(await getBackendConfig());
+		const backendConfig = await getBackendConfig();
+		config.set(backendConfig);
+		OPENLAUNCH_NAME.set(backendConfig.name);
 
 		if (res) {
 			saveHandler();
@@ -152,6 +154,24 @@
 					<div class=" mt-0.5 mb-2.5 text-base font-medium">{$i18n.t('General')}</div>
 
 					<hr class=" border-gray-100/30 dark:border-gray-850/30 my-2" />
+
+					<div class="mb-4">
+						<div class="mb-2 text-xs font-medium">{$i18n.t('Application Name')}</div>
+						<input
+							class="w-full rounded-lg bg-gray-50 px-4 py-2 text-sm outline-hidden dark:bg-gray-850 dark:text-gray-300"
+							type="text"
+							required
+							maxlength="80"
+							autocomplete="organization"
+							placeholder={$i18n.t('OpenLaunch')}
+							bind:value={adminConfig.APP_NAME}
+						/>
+						<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+							{$i18n.t(
+								'The name shown in browser titles, sign-in screens, notifications, and installable app metadata.'
+							)}
+						</div>
+					</div>
 
 					<div class="mb-4">
 						<div class="mb-2 text-xs font-medium">{$i18n.t('Application Logo')}</div>
@@ -474,7 +494,7 @@
 
 					<div class="mb-2.5 w-full justify-between">
 						<div class="flex w-full justify-between">
-							<div class=" self-center text-xs font-medium">{$i18n.t('OpenLaunch URL')}</div>
+							<div class=" self-center text-xs font-medium">{$i18n.t('Application URL')}</div>
 						</div>
 
 						<div class="flex mt-2 space-x-2">
@@ -488,7 +508,7 @@
 
 						<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
 							{$i18n.t(
-								'Enter the public URL of your OpenLaunch. This URL will be used to generate links in the notifications.'
+								'Enter the public URL of your application. This URL will be used to generate links in notifications.'
 							)}
 						</div>
 					</div>
