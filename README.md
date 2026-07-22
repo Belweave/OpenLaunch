@@ -6,18 +6,19 @@
 
 ![OpenLaunch banner](./banner.png)
 
-OpenLaunch is a self-hosted AI workspace for OpenAI-compatible APIs, Ollama, retrieval-augmented generation, tools, models, notes, channels, and team collaboration. It is designed to run locally or on your own infrastructure, with a responsive web interface and a Python backend.
+OpenLaunch is a self-hosted AI workspace for individuals and teams, combining chat, model management, retrieval, tools, collaboration, and automations with your own providers and infrastructure.
 
-## Highlights
+## What it supports
 
-- Connect Ollama and OpenAI-compatible model providers.
-- Build model presets with prompts, knowledge, tools, skills, and access controls.
-- Index local or cloud-backed files for retrieval with multiple vector database options.
-- Collaborate through chats, channels, notes, calendars, and scheduled automations.
-- Configure LDAP, OAuth, trusted-header authentication, SCIM, groups, and granular permissions.
-- Run as a PWA or deploy with Python, Docker, or Docker Compose.
+- **Anthropic and compatible APIs** — Claude model discovery, chat, streaming, tools, multimodal inputs, errors, and usage through the native Messages API.
+- **OpenAI and OpenAI-compatible APIs** — connect OpenAI or any service exposing the familiar `/v1` model and chat endpoints.
+- **Ollama** — run local models alongside hosted providers.
+- **Workspace features** — reusable models, prompts, knowledge, tools, skills, web search, code execution, notes, channels, calendars, and automations.
+- **Retrieval and administration** — file indexing, multiple vector databases, OAuth, LDAP, trusted headers, SCIM, groups, and granular permissions.
 
-## Quick start with Docker Compose
+## Quick start
+
+Docker Compose starts OpenLaunch and Ollama and stores their data in named volumes:
 
 ```bash
 git clone https://github.com/belweave/openlaunch.git
@@ -25,9 +26,9 @@ cd openlaunch
 docker compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The Compose stack stores application data in the `openlaunch` named volume.
+Open [http://localhost:3000](http://localhost:3000), create the first account, then configure providers under **Admin Panel → Settings → Connections**.
 
-To update:
+To update an image-based installation:
 
 ```bash
 git pull --ff-only
@@ -35,23 +36,19 @@ docker compose pull
 docker compose up -d
 ```
 
-## Run the container directly
+Use `docker compose up -d --build` when you want to build the checked-out source locally.
 
-```bash
-docker run -d \
-  -p 3000:8080 \
-  --add-host=host.docker.internal:host-gateway \
-  -v openlaunch:/app/backend/data \
-  --name openlaunch \
-  --restart unless-stopped \
-  ghcr.io/belweave/openlaunch:main
-```
+## Provider configuration
 
-Set `OLLAMA_BASE_URL` when Ollama is not reachable at the default host. Anthropic can be configured in the admin Connections screen or with `ANTHROPIC_API_KEY` and the optional `ANTHROPIC_API_BASE_URL`. See [.env.example](./.env.example) for canonical configuration names.
+Connections can be managed in the admin UI or initialized with `OLLAMA_BASE_URL`, `OPENAI_API_BASE_URL` and `OPENAI_API_KEY`, or `ANTHROPIC_API_BASE_URL` and `ANTHROPIC_API_KEY`.
+
+For an Anthropic-compatible gateway, set the base URL through the version prefix—for example, `https://gateway.example.com/v1`. OpenLaunch calls its `/models` and `/messages` routes. The admin UI also supports Bearer authentication, custom headers, multiple connections, and per-connection model filters.
+
+See [.env.example](./.env.example) for common settings. Container data lives at `/app/backend/data`; back up the volume before major upgrades.
 
 ## Run from source
 
-OpenLaunch supports Python 3.11 and 3.12 and Node.js 18 through 22.
+Source builds require Python 3.11 or 3.12 and Node.js 18–22:
 
 ```bash
 npm ci
@@ -62,28 +59,15 @@ pip install .
 openlaunch serve
 ```
 
-For frontend development, run `npm run dev`. For backend development, install the project and start `backend/dev.sh`.
+Use `npm run dev` for frontend development and `backend/dev.sh` for backend development. Before contributing, run the relevant checks from [package.json](./package.json) and [pyproject.toml](./pyproject.toml).
 
-## Configuration and compatibility
+> [!CAUTION]
+> Tools and functions can execute code on the OpenLaunch host. Grant creation permissions only to fully trusted users and use a stable `OPENLAUNCH_SECRET_KEY`, TLS, restricted CORS, and regular data backups in production.
 
-Canonical product-specific environment variables use the `OPENLAUNCH_` prefix. At startup, OpenLaunch also recognizes the former short-prefix environment variables for upgrade compatibility, but new deployments should use only the canonical names.
+## Project links
 
-The application data directory remains `/app/backend/data` in containers. When moving an existing installation to the new `openlaunch` Docker volume, copy the contents of the previous data volume before starting the new container.
-
-## Releases and updates
-
-Release discovery and in-app update notices use [belweave/openlaunch releases](https://github.com/belweave/openlaunch/releases). The backend checks the latest release through the GitHub releases API; it does not contact a separate project update service.
-
-## Contributing
-
-Issues, feature proposals, and pull requests are welcome:
-
-- [Issue tracker](https://github.com/belweave/openlaunch/issues)
+- [Releases](https://github.com/belweave/openlaunch/releases)
+- [Issues](https://github.com/belweave/openlaunch/issues)
 - [Discussions](https://github.com/belweave/openlaunch/discussions)
 - [Security policy](./docs/SECURITY.md)
-
-Before submitting a change, run the relevant frontend and backend checks described in [package.json](./package.json) and [pyproject.toml](./pyproject.toml).
-
-## License
-
-OpenLaunch is licensed under the [MIT License](./LICENSE).
+- [MIT License](./LICENSE)
