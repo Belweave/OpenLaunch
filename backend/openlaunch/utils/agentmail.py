@@ -12,6 +12,7 @@ from openlaunch.models.config import Config
 AGENTMAIL_API_BASE_URL = "https://api.agentmail.to"
 AGENTMAIL_TIMEOUT = 30.0
 USER_INBOXES_CONFIG_KEY = "email.agentmail.user_inboxes"
+AGENTMAIL_DEFAULT_DOMAIN = "agentmail.to"
 
 _mapping_lock = asyncio.Lock()
 log = logging.getLogger(__name__)
@@ -109,6 +110,45 @@ async def set_mapped_inbox_id(user_id: str, inbox_id: str | None) -> None:
         await Config.upsert({USER_INBOXES_CONFIG_KEY: mappings})
 
 
+def get_user_client_id(user_id: str) -> str:
+    # AgentMail client IDs only allow RFC 3986 unreserved characters.
+    return f"openlaunch-{user_id}"
+
+
+async def list_agentmail_domains() -> list[dict]:
+    domains = [
+        {
+            "domain": AGENTMAIL_DEFAULT_DOMAIN,
+            "domain_id": AGENTMAIL_DEFAULT_DOMAIN,
+            "default": True,
+        }
+    ]
+    seen = {AGENTMAIL_DEFAULT_DOMAIN}
+    page_token = None
+    while True:
+        params = {"limit": 100}
+        if page_token:
+            params["page_token"] = page_token
+        response = await agentmail_request("GET", "/v0/domains", params=params)
+        payload = response.json()
+        for item in payload.get("domains", []):
+            domain = str(item.get("domain") or "").strip().lower()
+            if not domain or domain in seen:
+                continue
+            seen.add(domain)
+            domains.append(
+                {
+                    "domain": domain,
+                    "domain_id": item.get("domain_id"),
+                    "default": False,
+                }
+            )
+        page_token = payload.get("next_page_token")
+        if not page_token:
+            break
+    return domains
+
+
 async def find_user_inbox(user_id: str) -> dict | None:
     mapped_id = await get_mapped_inbox_id(user_id)
     if mapped_id:
@@ -132,7 +172,11 @@ async def find_user_inbox(user_id: str) -> dict | None:
         for inbox in payload.get("inboxes", []):
             metadata = inbox.get("metadata") or {}
             if (
-                inbox.get("client_id") == f"openlaunch:{user_id}"
+                inbox.get("client_id")
+                in {
+                    get_user_client_id(user_id),
+                    f"openlaunch:{user_id}",  # Legacy discovery for pre-fix records.
+                }
                 or metadata.get("openlaunch_user_id") == user_id
             ):
                 await set_mapped_inbox_id(user_id, inbox["inbox_id"])
@@ -154,7 +198,7 @@ async def provision_user_inbox(
         return existing
 
     body: dict[str, Any] = {
-        "client_id": f'openlaunch:{user["id"]}',
+        "client_id": get_user_client_id(user["id"]),
         "display_name": display_name or user.get("name") or user.get("email"),
         "metadata": {
             "openlaunch_user_id": user["id"],

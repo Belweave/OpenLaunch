@@ -6,6 +6,7 @@
 	import {
 		agentMailClient,
 		downloadAgentMailFile,
+		getMyAgentMailDomains,
 		getMyAgentMailInbox,
 		provisionMyAgentMailInbox
 	} from '$lib/apis/agentmail';
@@ -17,6 +18,8 @@
 	let status: any = null;
 	let provisioning = false;
 	let preferredUsername = '';
+	let domains: any[] = [{ domain: 'agentmail.to', default: true }];
+	let selectedDomain = 'agentmail.to';
 	let threads: any[] = [];
 	let drafts: any[] = [];
 	let selected: any = null;
@@ -65,14 +68,26 @@
 			toast.error(String(error));
 			return { enabled: true, configured: false, inbox: null };
 		});
-		if (status?.inbox) await loadList();
+		if (status?.inbox) {
+			await loadList();
+		} else if (status?.enabled && status?.configured) {
+			const result = await getMyAgentMailDomains(localStorage.token).catch((error) => {
+				toast.error(String(error));
+				return { domains };
+			});
+			domains = result.domains?.length ? result.domains : domains;
+			if (!domains.some((item) => item.domain === selectedDomain)) {
+				selectedDomain = domains[0].domain;
+			}
+		}
 	};
 
 	const provision = async () => {
 		provisioning = true;
 		try {
 			const result = await provisionMyAgentMailInbox(localStorage.token, {
-				username: preferredUsername || null
+				username: preferredUsername || null,
+				domain: selectedDomain
 			});
 			status = { ...status, inbox: result.inbox };
 			toast.success(`Email ready at ${result.inbox.email}`);
@@ -341,8 +356,8 @@
 			<Envelope className="mb-4 size-10" />
 			<h1 class="text-xl font-semibold">Set up your AgentMail inbox</h1>
 			<p class="mt-2 text-sm text-gray-500">
-				OpenLaunch checked for an existing linked inbox. Choose an optional address name, or let
-				AgentMail generate one.
+				OpenLaunch checked for an existing linked inbox. Choose an address name and one of your
+				AgentMail domains, or leave the name empty to generate one.
 			</p>
 			<div
 				class="mt-5 flex items-center overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700"
@@ -352,7 +367,16 @@
 					placeholder="preferred-name"
 					bind:value={preferredUsername}
 				/>
-				<span class="pr-4 text-sm text-gray-400">@agentmail.to</span>
+				<span class="text-sm text-gray-400">@</span>
+				<select
+					class="max-w-[50%] bg-transparent py-2.5 pr-4 text-sm outline-none"
+					bind:value={selectedDomain}
+					aria-label="Email domain"
+				>
+					{#each domains as item}
+						<option value={item.domain}>{item.domain}</option>
+					{/each}
+				</select>
 			</div>
 			<button
 				class="mt-4 w-full rounded-xl bg-black px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"

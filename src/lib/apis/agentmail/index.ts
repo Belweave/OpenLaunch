@@ -28,6 +28,8 @@ export const testAgentMailAdminConfig = (token: string) =>
 
 export const getMyAgentMailInbox = (token: string) => request(token, '/me/inbox');
 
+export const getMyAgentMailDomains = (token: string) => request(token, '/me/domains');
+
 export const provisionMyAgentMailInbox = (token: string, body: object = {}) =>
 	request(token, '/me/inbox', { method: 'POST', body: JSON.stringify(body) });
 

@@ -10,6 +10,8 @@ from openlaunch.utils.agentmail import (
     AgentMailError,
     agentmail_request,
     find_user_inbox,
+    get_user_client_id,
+    list_agentmail_domains,
     provision_user_inbox,
 )
 
@@ -100,9 +102,31 @@ class AgentMailClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(inbox["inbox_id"], "preetham@agentmail.to")
         body = request.await_args.kwargs["json_body"]
-        self.assertEqual(body["client_id"], "openlaunch:user-1")
+        self.assertEqual(body["client_id"], "openlaunch-user-1")
         self.assertEqual(body["metadata"]["openlaunch_user_id"], "user-1")
         set_mapping.assert_awaited_once_with("user-1", "preetham@agentmail.to")
+
+    def test_generated_client_id_uses_only_agentmail_safe_characters(self):
+        self.assertEqual(get_user_client_id("user-1_ABC"), "openlaunch-user-1_ABC")
+        self.assertNotIn(":", get_user_client_id("user-1"))
+
+    @patch("openlaunch.utils.agentmail.agentmail_request", new_callable=AsyncMock)
+    async def test_lists_default_and_account_domains(self, request):
+        request.return_value = FakeResponse(
+            {
+                "domains": [
+                    {"domain": "agents.example.com", "domain_id": "domain-1"},
+                    {"domain": "example.org", "domain_id": "domain-2"},
+                ]
+            }
+        )
+
+        domains = await list_agentmail_domains()
+
+        self.assertEqual(
+            [item["domain"] for item in domains],
+            ["agentmail.to", "agents.example.com", "example.org"],
+        )
 
     async def test_model_catch_all_client_rejects_path_traversal(self):
         result = json.loads(

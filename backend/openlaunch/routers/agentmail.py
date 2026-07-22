@@ -11,6 +11,7 @@ from openlaunch.utils.agentmail import (
     agentmail_request,
     find_user_inbox,
     get_agentmail_settings,
+    list_agentmail_domains,
     provision_user_inbox,
     require_user_inbox,
 )
@@ -137,6 +138,19 @@ async def provision_my_agentmail_inbox(
             display_name=form_data.display_name,
         )
         return {"inbox": inbox}
+    except AgentMailError as exc:
+        _raise_agentmail_error(exc)
+
+
+@router.get("/me/domains")
+async def get_my_agentmail_domains(user=Depends(get_verified_user)):
+    enabled, _ = await get_agentmail_settings()
+    if not enabled:
+        raise HTTPException(
+            status_code=403, detail="AgentMail email is disabled by the administrator"
+        )
+    try:
+        return {"domains": await list_agentmail_domains()}
     except AgentMailError as exc:
         _raise_agentmail_error(exc)
 
