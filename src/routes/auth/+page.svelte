@@ -21,6 +21,7 @@
 	import { OPENLAUNCH_NAME, config, user, socket } from '$lib/stores';
 
 	import { generateInitialsImage, canvasPixelTest, getUserTimezone } from '$lib/utils';
+	import { hasAuthenticatedSession } from '$lib/utils/auth-session';
 
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import OnBoarding from '$lib/components/OnBoarding.svelte';
@@ -172,7 +173,9 @@
 
 	onMount(async () => {
 		const redirectPath = $page.url.searchParams.get('redirect');
-		if ($user !== undefined) {
+		// `null` is the explicit signed-out state. Treating it as an authenticated
+		// user causes /auth -> / -> /auth navigation loops after a session expires.
+		if (hasAuthenticatedSession($user)) {
 			goto(redirectPath || '/');
 		} else {
 			if (redirectPath) {
