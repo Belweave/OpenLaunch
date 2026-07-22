@@ -93,6 +93,11 @@ from openlaunch.tools.builtin import (
     view_skill,
     write_note,
 )
+from openlaunch.tools.sql_database import (
+    is_sql_database_configured,
+    list_sql_database_schema,
+    query_sql_database,
+)
 from openlaunch.utils.access_control import has_access, has_connection_access, has_permission
 from openlaunch.utils.headers import get_custom_headers, include_user_info_headers
 from openlaunch.utils.misc import is_string_allowed
@@ -616,6 +621,15 @@ async def get_builtin_tools(
         and await has_user_permission('code_interpreter')
     ):
         builtin_functions.append(execute_code)
+
+    # Enterprise SQL is opt-in at the deployment, model, and user/group levels.
+    # The callable itself enforces PostgreSQL read-only transactions and resource caps.
+    if (
+        is_builtin_tool_enabled('sql_database')
+        and is_sql_database_configured()
+        and await has_user_permission('sql_database')
+    ):
+        builtin_functions.extend([list_sql_database_schema, query_sql_database])
 
     # Notes tools - search, view, create, and update user's notes
     if is_builtin_tool_enabled('notes') and config.get('notes.enable') and await has_user_permission('notes'):

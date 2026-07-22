@@ -46,6 +46,16 @@ For an Anthropic-compatible gateway, set the base URL through the version prefix
 
 See [.env.example](./.env.example) for common settings. Container data lives at `/app/backend/data`; back up the volume before major upgrades.
 
+## Read-only SQL agent tool
+
+OpenLaunch can expose schema discovery and read-only PostgreSQL queries to models through the same native tool-calling harness used by OpenAI, Anthropic, and compatible endpoints. It is disabled by default.
+
+1. Create a dedicated database role with only the `CONNECT`, `USAGE`, and `SELECT` grants the agent needs.
+2. Set `ENABLE_SQL_DATABASE_TOOL=true` and `SQL_DATABASE_URL` to that role's PostgreSQL URL. Do not reuse OpenLaunch's `DATABASE_URL`.
+3. Grant **SQL Database** permission only to the intended user group. Admins can use enabled built-in tools automatically.
+
+The harness accepts one `SELECT`, `WITH`, `EXPLAIN`, or `SHOW` statement per call and also enforces a read-only transaction, statement timeout, row limit, and output-size limit. Model settings can disable the SQL built-in for individual models. See [.env.example](./.env.example) for the resource-limit settings.
+
 ## Run from source
 
 Source builds require Python 3.11 or 3.12 and Node.js 18–22:

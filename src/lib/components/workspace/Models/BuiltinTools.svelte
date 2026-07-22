@@ -43,6 +43,10 @@
 			label: $i18n.t('Code Interpreter'),
 			description: $i18n.t('Execute code')
 		},
+		sql_database: {
+			label: $i18n.t('SQL Database'),
+			description: $i18n.t('Inspect and query the configured read-only SQL database')
+		},
 		tasks: {
 			label: $i18n.t('Task Management'),
 			description: $i18n.t('Break down complex requests into trackable steps')

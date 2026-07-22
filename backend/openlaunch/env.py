@@ -872,6 +872,15 @@ ENABLE_EASTER_EGGS = os.getenv('ENABLE_EASTER_EGGS', 'True').lower() == 'true'
 ENABLE_STAR_SESSIONS_MIDDLEWARE = os.getenv('ENABLE_STAR_SESSIONS_MIDDLEWARE', 'False').lower() == 'true'
 ENABLE_KB_EXEC = os.getenv('ENABLE_KB_EXEC', 'False').lower() == 'true'
 
+# Read-only enterprise SQL tool. Keep this connection separate from OpenLaunch's
+# application database and disabled unless an operator explicitly configures it.
+ENABLE_SQL_DATABASE_TOOL = os.getenv('ENABLE_SQL_DATABASE_TOOL', 'False').lower() == 'true'
+SQL_DATABASE_URL = os.getenv('SQL_DATABASE_URL', '')
+SQL_DATABASE_MAX_ROWS = max(1, int(os.getenv('SQL_DATABASE_MAX_ROWS', '200')))
+SQL_DATABASE_QUERY_TIMEOUT_SECONDS = max(1, int(os.getenv('SQL_DATABASE_QUERY_TIMEOUT_SECONDS', '15')))
+SQL_DATABASE_MAX_RESULT_BYTES = max(1_024, int(os.getenv('SQL_DATABASE_MAX_RESULT_BYTES', '100000')))
+SQL_DATABASE_MAX_QUERY_CHARACTERS = max(1_000, int(os.getenv('SQL_DATABASE_MAX_QUERY_CHARACTERS', '20000')))
+
 ENABLE_PROFILE_IMAGE_URL_FORWARDING = os.getenv('ENABLE_PROFILE_IMAGE_URL_FORWARDING', 'True').lower() == 'true'
 PROFILE_IMAGE_ALLOWED_MIME_TYPES = frozenset(
     t.strip()
