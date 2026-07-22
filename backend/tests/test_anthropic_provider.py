@@ -4,7 +4,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from openlaunch.routers.anthropic import request_anthropic_chat_completion
+from openlaunch.routers.anthropic import (
+    AnthropicConfigForm,
+    request_anthropic_chat_completion,
+    update_config,
+)
 from openlaunch.utils.anthropic import (
     anthropic_stream_to_openai_stream,
     convert_anthropic_error_to_openai,
@@ -53,6 +57,31 @@ class FakeSession:
 
 
 class AnthropicConversionTests(unittest.TestCase):
+    def test_config_update_preserves_active_global_model_cache(self):
+        state = SimpleNamespace(
+            ANTHROPIC_MODELS={'old-claude': {}},
+            BASE_MODELS=[{'id': 'old-claude'}],
+            MODELS={'active-model': {'id': 'active-model'}},
+        )
+        request = SimpleNamespace(app=SimpleNamespace(state=state))
+        user = SimpleNamespace(id='admin-1')
+        form = AnthropicConfigForm(
+            ENABLE_ANTHROPIC_API=True,
+            ANTHROPIC_API_BASE_URLS=['https://api.anthropic.com/v1'],
+            ANTHROPIC_API_KEYS=['secret'],
+            ANTHROPIC_API_CONFIGS={'0': {'auth_type': 'api_key'}},
+        )
+
+        with (
+            patch('openlaunch.routers.anthropic.Config.upsert', AsyncMock()),
+            patch('openlaunch.routers.anthropic.publish_event', AsyncMock()),
+        ):
+            asyncio.run(update_config(request, form, user))
+
+        self.assertEqual(state.ANTHROPIC_MODELS, {})
+        self.assertEqual(state.BASE_MODELS, [])
+        self.assertEqual(state.MODELS, {'active-model': {'id': 'active-model'}})
+
     def test_normalizes_only_the_official_root_url(self):
         self.assertEqual(normalize_anthropic_base_url(None), 'https://api.anthropic.com/v1')
         self.assertEqual(

@@ -114,7 +114,6 @@ async def update_config(request: Request, form_data: AnthropicConfigForm, user=D
     )
     request.app.state.ANTHROPIC_MODELS = {}
     request.app.state.BASE_MODELS = []
-    request.app.state.MODELS = {}
     await publish_event(
         request,
         EVENTS.MODEL_PROVIDER_CONFIG_UPDATED,
