@@ -330,6 +330,38 @@ OPENAI_API_BASE_URL = 'https://api.openai.com/v1'
 
 
 ####################################
+# ANTHROPIC_API
+####################################
+
+
+ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+ENABLE_ANTHROPIC_API = os.getenv('ENABLE_ANTHROPIC_API', 'True' if ANTHROPIC_API_KEY else 'False').lower() == 'true'
+ANTHROPIC_API_BASE_URL = os.getenv('ANTHROPIC_API_BASE_URL', 'https://api.anthropic.com/v1').rstrip('/')
+if ANTHROPIC_API_BASE_URL == 'https://api.anthropic.com':
+    ANTHROPIC_API_BASE_URL = f'{ANTHROPIC_API_BASE_URL}/v1'
+
+ANTHROPIC_API_KEYS = os.getenv('ANTHROPIC_API_KEYS', '') or ANTHROPIC_API_KEY
+ANTHROPIC_API_KEYS = [key.strip() for key in ANTHROPIC_API_KEYS.split(';')]
+
+ANTHROPIC_API_BASE_URLS = os.getenv('ANTHROPIC_API_BASE_URLS', '') or ANTHROPIC_API_BASE_URL
+ANTHROPIC_API_BASE_URLS = [
+    (url.strip() or 'https://api.anthropic.com/v1').rstrip('/') for url in ANTHROPIC_API_BASE_URLS.split(';')
+]
+
+ANTHROPIC_API_CONFIGS = {}
+_anthropic_api_configs = os.getenv('ANTHROPIC_API_CONFIGS', '')
+if _anthropic_api_configs:
+    try:
+        parsed = json.loads(_anthropic_api_configs)
+        if isinstance(parsed, dict):
+            ANTHROPIC_API_CONFIGS = parsed
+        else:
+            log.warning('ANTHROPIC_API_CONFIGS must be a JSON object, ignoring')
+    except (json.JSONDecodeError, TypeError):
+        log.warning('ANTHROPIC_API_CONFIGS is not valid JSON, ignoring')
+
+
+####################################
 # MODELS
 ####################################
 
@@ -2720,6 +2752,10 @@ DEFAULT_CONFIG = {
     'openai.api_keys': OPENAI_API_KEYS,
     'openai.api_base_urls': OPENAI_API_BASE_URLS,
     'openai.api_configs': OPENAI_API_CONFIGS,
+    'anthropic.enable': ENABLE_ANTHROPIC_API,
+    'anthropic.api_keys': ANTHROPIC_API_KEYS,
+    'anthropic.api_base_urls': ANTHROPIC_API_BASE_URLS,
+    'anthropic.api_configs': ANTHROPIC_API_CONFIGS,
     'models.base_models_cache': ENABLE_BASE_MODELS_CACHE,
     'tool_server.connections': TOOL_SERVER_CONNECTIONS,
     'oauth.client.timeout': OAUTH_CLIENT_TIMEOUT,

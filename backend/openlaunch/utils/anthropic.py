@@ -1,5 +1,8 @@
+import datetime as dt
 import json
 import logging
+import time
+import uuid
 
 import aiohttp
 from openlaunch.env import (
@@ -18,7 +21,45 @@ def is_anthropic_url(url: str) -> bool:
     return 'api.anthropic.com' in url
 
 
-async def get_anthropic_models(url: str, key: str, user: UserModel = None) -> dict:
+def normalize_anthropic_base_url(url: str | None) -> str:
+    """Normalize a Messages API base URL without guessing compatible paths."""
+    normalized = (url or 'https://api.anthropic.com/v1').strip().rstrip('/')
+    if normalized == 'https://api.anthropic.com':
+        return f'{normalized}/v1'
+    return normalized
+
+
+def get_anthropic_headers(
+    key: str = '',
+    config: dict | None = None,
+    user: UserModel | None = None,
+) -> dict:
+    """Build native Anthropic headers, with compatible auth and custom-header support."""
+    config = config or {}
+    headers = {
+        'Content-Type': 'application/json',
+        'anthropic-version': config.get('anthropic_version') or '2023-06-01',
+    }
+    auth_type = config.get('auth_type', 'api_key')
+    if key and auth_type == 'bearer':
+        headers['Authorization'] = f'Bearer {key}'
+    elif key and auth_type not in ('none',):
+        headers['x-api-key'] = key
+
+    if ENABLE_FORWARD_USER_INFO_HEADERS and user:
+        headers = include_user_info_headers(headers, user)
+
+    if isinstance(config.get('headers'), dict):
+        headers.update({str(name): str(value) for name, value in config['headers'].items()})
+    return headers
+
+
+async def get_anthropic_models(
+    url: str,
+    key: str,
+    user: UserModel = None,
+    config: dict | None = None,
+) -> dict:
     """
     Fetch models from Anthropic's /v1/models endpoint with pagination.
     Normalizes the response to OpenAI format.
@@ -29,13 +70,7 @@ async def get_anthropic_models(url: str, key: str, user: UserModel = None) -> di
 
     try:
         async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-            headers = {
-                'x-api-key': key,
-                'anthropic-version': '2023-06-01',
-            }
-
-            if ENABLE_FORWARD_USER_INFO_HEADERS and user:
-                headers = include_user_info_headers(headers, user)
+            headers = get_anthropic_headers(key, config, user)
 
             while True:
                 params = {'limit': 1000}
@@ -43,7 +78,7 @@ async def get_anthropic_models(url: str, key: str, user: UserModel = None) -> di
                     params['after_id'] = after_id
 
                 async with session.get(
-                    f'{url}/models',
+                    f'{normalize_anthropic_base_url(url)}/models',
                     headers=headers,
                     params=params,
                     ssl=AIOHTTP_CLIENT_SESSION_SSL,
@@ -53,10 +88,16 @@ async def get_anthropic_models(url: str, key: str, user: UserModel = None) -> di
                         try:
                             res = await response.json()
                             if 'error' in res:
-                                error_detail = f'External Error: {res["error"]}'
+                                error_detail = res['error']
                         except Exception:
                             pass
-                        return {'object': 'list', 'data': [], 'error': error_detail}
+                        return {
+                            'object': 'list',
+                            'data': [],
+                            'error': error_detail,
+                            'status': response.status,
+                            'request_id': response.headers.get('request-id'),
+                        }
 
                     data = await response.json()
 
@@ -65,9 +106,10 @@ async def get_anthropic_models(url: str, key: str, user: UserModel = None) -> di
                             {
                                 'id': model.get('id'),
                                 'object': 'model',
-                                'created': 0,
+                                'created': _anthropic_timestamp(model.get('created_at')),
                                 'owned_by': 'anthropic',
                                 'name': model.get('display_name', model.get('id')),
+                                'anthropic': model,
                             }
                         )
 
@@ -77,9 +119,18 @@ async def get_anthropic_models(url: str, key: str, user: UserModel = None) -> di
 
     except Exception as e:
         log.error(f'Anthropic connection error: {e}')
-        return None
+        return {'object': 'list', 'data': [], 'error': {'message': str(e)}}
 
     return {'object': 'list', 'data': all_models}
+
+
+def _anthropic_timestamp(value) -> int:
+    if not value:
+        return 0
+    try:
+        return int(dt.datetime.fromisoformat(str(value).replace('Z', '+00:00')).timestamp())
+    except (TypeError, ValueError):
+        return 0
 
 
 ##############################
@@ -107,6 +158,403 @@ def _finalize_openai_content(blocks: list) -> str | list:
         return blocks[0].get('text', '')
 
     return blocks
+
+
+def _openai_part_to_anthropic(part) -> dict | None:
+    if isinstance(part, str):
+        return {'type': 'text', 'text': part}
+    if not isinstance(part, dict):
+        return None
+
+    part_type = part.get('type', 'text')
+    if part_type in ('text', 'input_text'):
+        return _copy_cache_control(part, {'type': 'text', 'text': part.get('text', '')})
+    if part_type in ('image_url', 'input_image'):
+        image = part.get('image_url', part.get('image', ''))
+        image_url = image.get('url', '') if isinstance(image, dict) else image
+        if not isinstance(image_url, str):
+            return None
+        if image_url.startswith('data:') and ';base64,' in image_url:
+            header, data = image_url.split(';base64,', 1)
+            return _copy_cache_control(
+                part,
+                {
+                    'type': 'image',
+                    'source': {
+                        'type': 'base64',
+                        'media_type': header[5:] or 'image/png',
+                        'data': data,
+                    },
+                },
+            )
+        return _copy_cache_control(
+            part,
+            {'type': 'image', 'source': {'type': 'url', 'url': image_url}},
+        )
+    return None
+
+
+def _openai_content_to_anthropic(content) -> str | list:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return '' if content is None else str(content)
+    blocks = []
+    for part in content:
+        block = _openai_part_to_anthropic(part)
+        if block is not None:
+            blocks.append(block)
+    return blocks
+
+
+def convert_openai_to_anthropic_payload(openai_payload: dict, default_max_tokens: int = 4096) -> dict:
+    """Convert OpenLaunch's OpenAI-shaped request into a native Messages request."""
+    max_tokens = openai_payload.get('max_completion_tokens') or openai_payload.get('max_tokens') or default_max_tokens
+    payload = {
+        'model': openai_payload.get('model', ''),
+        'max_tokens': max_tokens,
+        'messages': [],
+    }
+
+    system_blocks = []
+    for message in openai_payload.get('messages', []):
+        role = message.get('role', 'user')
+        content = message.get('content', '')
+
+        if role in ('system', 'developer'):
+            converted = _openai_content_to_anthropic(content)
+            if isinstance(converted, str):
+                system_blocks.append({'type': 'text', 'text': converted})
+            else:
+                system_blocks.extend(block for block in converted if block.get('type') == 'text')
+            continue
+
+        if role == 'assistant':
+            blocks = []
+            converted = _openai_content_to_anthropic(content)
+            if isinstance(converted, str):
+                if converted:
+                    blocks.append({'type': 'text', 'text': converted})
+            else:
+                blocks.extend(converted)
+            for tool_call in message.get('tool_calls') or []:
+                function = tool_call.get('function') or {}
+                arguments = function.get('arguments', {})
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except (json.JSONDecodeError, TypeError):
+                        arguments = {'value': arguments}
+                blocks.append(
+                    {
+                        'type': 'tool_use',
+                        'id': tool_call.get('id') or f'toolu_{uuid.uuid4().hex[:24]}',
+                        'name': function.get('name', ''),
+                        'input': arguments if isinstance(arguments, dict) else {},
+                    }
+                )
+            payload['messages'].append({'role': 'assistant', 'content': blocks or ''})
+            continue
+
+        if role == 'tool':
+            tool_content = _openai_content_to_anthropic(content)
+            payload['messages'].append(
+                {
+                    'role': 'user',
+                    'content': [
+                        {
+                            'type': 'tool_result',
+                            'tool_use_id': message.get('tool_call_id', ''),
+                            'content': tool_content,
+                            **({'is_error': True} if message.get('is_error') else {}),
+                        }
+                    ],
+                }
+            )
+            continue
+
+        payload['messages'].append(
+            {
+                'role': 'user',
+                'content': _openai_content_to_anthropic(content),
+            }
+        )
+
+    if system_blocks:
+        payload['system'] = system_blocks
+
+    param_map = {
+        'temperature': 'temperature',
+        'top_p': 'top_p',
+        'top_k': 'top_k',
+        'stream': 'stream',
+        'stop': 'stop_sequences',
+        'service_tier': 'service_tier',
+        'thinking': 'thinking',
+    }
+    for source, target in param_map.items():
+        if source in openai_payload and openai_payload[source] is not None:
+            payload[target] = openai_payload[source]
+
+    metadata = openai_payload.get('metadata')
+    if isinstance(metadata, dict) and metadata.get('user_id'):
+        payload['metadata'] = {'user_id': str(metadata['user_id'])}
+
+    tools = []
+    for tool in openai_payload.get('tools') or []:
+        function = tool.get('function', tool) if isinstance(tool, dict) else {}
+        if not isinstance(function, dict) or not function.get('name'):
+            continue
+        converted = {
+            'name': function['name'],
+            'input_schema': function.get('parameters') or function.get('input_schema') or {'type': 'object'},
+        }
+        if function.get('description'):
+            converted['description'] = function['description']
+        _copy_cache_control(tool, converted)
+        tools.append(converted)
+    if tools:
+        payload['tools'] = tools
+
+    tool_choice = openai_payload.get('tool_choice')
+    if tool_choice:
+        if tool_choice == 'auto':
+            payload['tool_choice'] = {'type': 'auto'}
+        elif tool_choice in ('required', 'any'):
+            payload['tool_choice'] = {'type': 'any'}
+        elif tool_choice == 'none':
+            pass
+        elif isinstance(tool_choice, dict):
+            function = tool_choice.get('function') or {}
+            if function.get('name'):
+                payload['tool_choice'] = {'type': 'tool', 'name': function['name']}
+
+    return payload
+
+
+def convert_anthropic_usage_to_openai(usage: dict | None) -> dict:
+    """Preserve Anthropic accounting while adding OpenAI-compatible totals."""
+    usage = dict(usage or {})
+    uncached = int(usage.get('input_tokens') or 0)
+    cache_creation = int(usage.get('cache_creation_input_tokens') or 0)
+    cache_read = int(usage.get('cache_read_input_tokens') or 0)
+    prompt_tokens = uncached + cache_creation + cache_read
+    completion_tokens = int(usage.get('output_tokens') or 0)
+    usage.update(
+        {
+            'anthropic_input_tokens': uncached,
+            'anthropic_output_tokens': completion_tokens,
+            'input_tokens': prompt_tokens,
+            'output_tokens': completion_tokens,
+            'prompt_tokens': prompt_tokens,
+            'completion_tokens': completion_tokens,
+            'total_tokens': prompt_tokens + completion_tokens,
+        }
+    )
+    if cache_read:
+        details = dict(usage.get('prompt_tokens_details') or {})
+        details['cached_tokens'] = cache_read
+        usage['prompt_tokens_details'] = details
+    return usage
+
+
+def convert_anthropic_to_openai_response(response: dict, request_id: str | None = None) -> dict:
+    """Convert a native Messages response into Chat Completions format."""
+    text_parts = []
+    tool_calls = []
+    extra_blocks = []
+    for block in response.get('content') or []:
+        block_type = block.get('type')
+        if block_type == 'text':
+            text_parts.append(block.get('text', ''))
+        elif block_type == 'tool_use':
+            tool_calls.append(
+                {
+                    'id': block.get('id') or f'call_{uuid.uuid4().hex}',
+                    'type': 'function',
+                    'function': {
+                        'name': block.get('name', ''),
+                        'arguments': json.dumps(block.get('input') or {}, separators=(',', ':')),
+                    },
+                }
+            )
+        else:
+            extra_blocks.append(block)
+
+    stop_reason_map = {
+        'end_turn': 'stop',
+        'stop_sequence': 'stop',
+        'max_tokens': 'length',
+        'tool_use': 'tool_calls',
+        'pause_turn': 'stop',
+        'refusal': 'content_filter',
+    }
+    message = {'role': 'assistant', 'content': ''.join(text_parts)}
+    if tool_calls:
+        message['tool_calls'] = tool_calls
+    if extra_blocks:
+        message['anthropic_content'] = extra_blocks
+
+    result = {
+        'id': response.get('id') or f'chatcmpl-{uuid.uuid4()}',
+        'object': 'chat.completion',
+        'created': int(time.time()),
+        'model': response.get('model', ''),
+        'choices': [
+            {
+                'index': 0,
+                'message': message,
+                'finish_reason': stop_reason_map.get(response.get('stop_reason'), 'stop'),
+            }
+        ],
+        'usage': convert_anthropic_usage_to_openai(response.get('usage')),
+    }
+    if request_id:
+        result['request_id'] = request_id
+    if response.get('stop_sequence') is not None:
+        result['stop_sequence'] = response['stop_sequence']
+    return result
+
+
+def convert_anthropic_error_to_openai(error: dict | str, request_id: str | None = None) -> dict:
+    """Keep the provider's typed error while exposing the shape OpenAI clients expect."""
+    if isinstance(error, dict):
+        source = error.get('error', error)
+        message = source.get('message', str(source)) if isinstance(source, dict) else str(source)
+        error_type = source.get('type', 'api_error') if isinstance(source, dict) else 'api_error'
+        result = {'error': {'message': message, 'type': error_type, 'code': error_type}}
+        request_id = request_id or error.get('request_id')
+    else:
+        result = {'error': {'message': str(error), 'type': 'api_error', 'code': 'api_error'}}
+    if request_id:
+        result['request_id'] = request_id
+    return result
+
+
+async def anthropic_stream_to_openai_stream(anthropic_stream, model: str = ''):
+    """Translate native named SSE events into OpenAI Chat Completions SSE chunks."""
+    completion_id = f'chatcmpl-{uuid.uuid4()}'
+    created = int(time.time())
+    buffer = ''
+    current_event = None
+    tool_indices = {}
+    usage = {}
+
+    def chunk(delta=None, finish_reason=None, chunk_usage=None):
+        data = {
+            'id': completion_id,
+            'object': 'chat.completion.chunk',
+            'created': created,
+            'model': model,
+            'choices': [
+                {
+                    'index': 0,
+                    'delta': delta or {},
+                    'finish_reason': finish_reason,
+                }
+            ],
+        }
+        if chunk_usage is not None:
+            data['usage'] = chunk_usage
+        return f'data: {json.dumps(data)}\n\n'.encode()
+
+    async def handle_event(event_name, raw_data):
+        nonlocal model, usage
+        try:
+            data = json.loads(raw_data)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        event_type = data.get('type') or event_name
+        emitted = []
+        if event_type == 'message_start':
+            message = data.get('message') or {}
+            model = message.get('model') or model
+            usage.update(message.get('usage') or {})
+            emitted.append(chunk({'role': 'assistant'}))
+        elif event_type == 'content_block_start':
+            block = data.get('content_block') or {}
+            if block.get('type') == 'text' and block.get('text'):
+                emitted.append(chunk({'content': block['text']}))
+            elif block.get('type') == 'tool_use':
+                index = int(data.get('index', 0))
+                tool_indices[index] = len(tool_indices)
+                emitted.append(
+                    chunk(
+                        {
+                            'tool_calls': [
+                                {
+                                    'index': tool_indices[index],
+                                    'id': block.get('id', ''),
+                                    'type': 'function',
+                                    'function': {'name': block.get('name', ''), 'arguments': ''},
+                                }
+                            ]
+                        }
+                    )
+                )
+        elif event_type == 'content_block_delta':
+            delta = data.get('delta') or {}
+            if delta.get('type') == 'text_delta':
+                emitted.append(chunk({'content': delta.get('text', '')}))
+            elif delta.get('type') == 'input_json_delta':
+                index = int(data.get('index', 0))
+                emitted.append(
+                    chunk(
+                        {
+                            'tool_calls': [
+                                {
+                                    'index': tool_indices.setdefault(index, len(tool_indices)),
+                                    'function': {'arguments': delta.get('partial_json', '')},
+                                }
+                            ]
+                        }
+                    )
+                )
+        elif event_type == 'message_delta':
+            usage.update(data.get('usage') or {})
+            stop_reason = (data.get('delta') or {}).get('stop_reason')
+            finish_map = {
+                'end_turn': 'stop',
+                'stop_sequence': 'stop',
+                'max_tokens': 'length',
+                'tool_use': 'tool_calls',
+                'pause_turn': 'stop',
+                'refusal': 'content_filter',
+            }
+            emitted.append(
+                chunk(
+                    {},
+                    finish_map.get(stop_reason, 'stop') if stop_reason else None,
+                    convert_anthropic_usage_to_openai(usage),
+                )
+            )
+        elif event_type == 'error':
+            emitted.append(f'data: {json.dumps(convert_anthropic_error_to_openai(data))}\n\n'.encode())
+        return emitted
+
+    async for raw_chunk in anthropic_stream:
+        buffer += raw_chunk.decode('utf-8', errors='replace') if isinstance(raw_chunk, bytes) else str(raw_chunk)
+        buffer = buffer.replace('\r\n', '\n')
+        while '\n\n' in buffer:
+            frame, buffer = buffer.split('\n\n', 1)
+            event_name = current_event
+            data_lines = []
+            for line in frame.replace('\r\n', '\n').split('\n'):
+                if line.startswith('event:'):
+                    event_name = line[6:].strip()
+                elif line.startswith('data:'):
+                    data_lines.append(line[5:].lstrip())
+            current_event = None
+            if data_lines:
+                for emitted in await handle_event(event_name, '\n'.join(data_lines)):
+                    yield emitted
+
+    if buffer.strip():
+        data_lines = [line[5:].lstrip() for line in buffer.splitlines() if line.startswith('data:')]
+        if data_lines:
+            for emitted in await handle_event(current_event, '\n'.join(data_lines)):
+                yield emitted
+    yield b'data: [DONE]\n\n'
 
 
 def convert_anthropic_to_openai_payload(anthropic_payload: dict) -> dict:
@@ -443,8 +891,8 @@ def convert_openai_to_anthropic_response(openai_response: dict, model: str = '')
     # Usage
     openai_usage = openai_response.get('usage', {})
     usage = {
-        'input_tokens': openai_usage.get('prompt_tokens', 0),
-        'output_tokens': openai_usage.get('completion_tokens', 0),
+        'input_tokens': openai_usage.get('anthropic_input_tokens', openai_usage.get('prompt_tokens', 0)),
+        'output_tokens': openai_usage.get('anthropic_output_tokens', openai_usage.get('completion_tokens', 0)),
     }
     if 'cache_creation_input_tokens' in openai_usage:
         usage['cache_creation_input_tokens'] = openai_usage['cache_creation_input_tokens']

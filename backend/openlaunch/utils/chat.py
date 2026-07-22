@@ -14,6 +14,9 @@ from openlaunch.functions import generate_function_chat_completion
 from openlaunch.models.functions import Functions
 from openlaunch.models.models import Models
 from openlaunch.models.users import UserModel
+from openlaunch.routers.anthropic import (
+    generate_chat_completion as generate_anthropic_chat_completion,
+)
 from openlaunch.routers.ollama import (
     generate_chat_completion as generate_ollama_chat_completion,
 )
@@ -297,6 +300,12 @@ async def generate_chat_completion(
                 )
             else:
                 return convert_response_ollama_to_openai(response)
+        elif model.get('owned_by') == 'anthropic':
+            return await generate_anthropic_chat_completion(
+                request=request,
+                form_data=form_data,
+                user=user,
+            )
         else:
             return await generate_openai_chat_completion(
                 request=request,

@@ -5,6 +5,7 @@
 
 	import { settings } from '$lib/stores';
 	import { verifyOpenAIConnection } from '$lib/apis/openai';
+	import { verifyAnthropicConnection } from '$lib/apis/anthropic';
 	import { verifyOllamaConnection } from '$lib/apis/ollama';
 
 	import Modal from '$lib/components/common/Modal.svelte';
@@ -27,6 +28,7 @@
 	export let edit = false;
 
 	export let ollama = false;
+	export let anthropic = false;
 	export let direct = false;
 
 	export let connection = null;
@@ -118,9 +120,30 @@
 		}
 	};
 
+	const verifyAnthropicHandler = async () => {
+		url = (url || 'https://api.anthropic.com/v1').replace(/\/$/, '');
+		let customHeaders = undefined;
+		if (headers) {
+			try {
+				customHeaders = JSON.parse(headers);
+			} catch {
+				toast.error($i18n.t('Headers must be a valid JSON object'));
+				return;
+			}
+		}
+		const res = await verifyAnthropicConnection(localStorage.token, {
+			url,
+			key,
+			config: { auth_type, ...(customHeaders ? { headers: customHeaders } : {}) }
+		}).catch((error) => toast.error(`${error}`));
+		if (res) toast.success($i18n.t('Server connection verified'));
+	};
+
 	const verifyHandler = () => {
 		if (ollama) {
 			verifyOllamaHandler();
+		} else if (anthropic) {
+			verifyAnthropicHandler();
 		} else {
 			verifyOpenAIHandler();
 		}
@@ -136,6 +159,7 @@
 	const submitHandler = async () => {
 		loading = true;
 
+		if (anthropic && !url) url = 'https://api.anthropic.com/v1';
 		if (!ollama && !url) {
 			loading = false;
 			toast.error($i18n.t('URL is required'));
@@ -205,7 +229,7 @@
 
 		url = '';
 		key = '';
-		auth_type = 'bearer';
+		auth_type = anthropic ? 'api_key' : 'bearer';
 		prefixId = '';
 		tags = [];
 		modelIds = [];
@@ -216,7 +240,7 @@
 			url = connection.url;
 			key = connection.key;
 
-			auth_type = connection.config.auth_type ?? 'bearer';
+			auth_type = connection.config.auth_type ?? (anthropic ? 'api_key' : 'bearer');
 			headers = connection.config?.headers
 				? JSON.stringify(connection.config.headers, null, 2)
 				: '';
@@ -234,6 +258,9 @@
 				apiVersion = connection.config?.api_version ?? '';
 				apiType = connection.config?.api_type ?? '';
 			}
+		} else if (anthropic) {
+			url = 'https://api.anthropic.com/v1';
+			auth_type = 'api_key';
 		}
 	};
 
@@ -318,11 +345,15 @@
 										bind:value={url}
 										placeholder={$i18n.t('API Base URL')}
 										autocomplete="off"
-										list={ollama ? undefined : 'suggestions'}
+										list={ollama ? undefined : anthropic ? 'anthropic-suggestions' : 'suggestions'}
 										required
 									/>
 
-									{#if !ollama}
+									{#if anthropic}
+										<datalist id="anthropic-suggestions">
+											<option value="https://api.anthropic.com/v1" />
+										</datalist>
+									{:else if !ollama}
 										<datalist id="suggestions">
 											<option value="https://api.openai.com/v1" />
 											<option value="https://api.anthropic.com/v1" />
@@ -387,9 +418,12 @@
 											bind:value={auth_type}
 										>
 											<option value="none">{$i18n.t('None')}</option>
+											{#if anthropic}
+												<option value="api_key">x-api-key</option>
+											{/if}
 											<option value="bearer">{$i18n.t('Bearer')}</option>
 
-											{#if !ollama}
+											{#if !ollama && !anthropic}
 												<option value="session">{$i18n.t('Session')}</option>
 												{#if !direct}
 													<option value="system_oauth">{$i18n.t('OAuth')}</option>
@@ -400,7 +434,7 @@
 									</div>
 
 									<div class="flex flex-1 items-center">
-										{#if auth_type === 'bearer'}
+										{#if auth_type === 'bearer' || auth_type === 'api_key'}
 											<SensitiveInput
 												bind:value={key}
 												placeholder={$i18n.t('API Key')}
@@ -493,7 +527,7 @@
 							</div>
 						</div>
 
-						{#if !ollama && !direct}
+						{#if !ollama && !anthropic && !direct}
 							<div class="flex flex-row justify-between items-center w-full mt-2">
 								<label
 									for="provider-select"
@@ -541,7 +575,7 @@
 							</div>
 						{/if}
 
-						{#if !ollama && !direct}
+						{#if !ollama && !anthropic && !direct}
 							<div class="flex flex-row justify-between items-center w-full mt-1">
 								<label
 									for="api-type-toggle"

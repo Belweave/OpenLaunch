@@ -47,7 +47,7 @@ docker run -d \
   ghcr.io/belweave/openlaunch:main
 ```
 
-Set `OLLAMA_BASE_URL` when Ollama is not reachable at the default host. See [.env.example](./.env.example) for canonical configuration names.
+Set `OLLAMA_BASE_URL` when Ollama is not reachable at the default host. Anthropic can be configured in the admin Connections screen or with `ANTHROPIC_API_KEY` and the optional `ANTHROPIC_API_BASE_URL`. See [.env.example](./.env.example) for canonical configuration names.
 
 ## Run from source
 

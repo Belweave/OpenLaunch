@@ -139,6 +139,7 @@ from openlaunch.models.models import Models
 from openlaunch.models.users import Users
 from openlaunch.routers import (
     analytics,
+    anthropic,
     audio,
     auths,
     automations,
@@ -480,6 +481,15 @@ app.state.OPENAI_MODELS = {}
 
 ########################################
 #
+# ANTHROPIC
+#
+########################################
+
+
+app.state.ANTHROPIC_MODELS = {}
+
+########################################
+#
 # TOOL SERVERS
 #
 ########################################
@@ -724,6 +734,7 @@ app.mount('/ws', socket_app)
 
 app.include_router(ollama.router, prefix='/ollama', tags=['ollama'])
 app.include_router(openai.router, prefix='/openai', tags=['openai'])
+app.include_router(anthropic.router, prefix='/anthropic', tags=['anthropic'])
 
 
 app.include_router(pipelines.router, prefix='/api/v1/pipelines', tags=['pipelines'])
@@ -868,9 +879,15 @@ async def unload_model(request: Request, form_data: ModelUnloadForm, user=Depend
 
     ollama_models = getattr(request.app.state, 'OLLAMA_MODELS', None) or {}
     openai_models = getattr(request.app.state, 'OPENAI_MODELS', None) or {}
+    anthropic_models = getattr(request.app.state, 'ANTHROPIC_MODELS', None) or {}
 
     seen = set()
-    while model_id not in ollama_models and model_id not in openai_models and model_id not in seen:
+    while (
+        model_id not in ollama_models
+        and model_id not in openai_models
+        and model_id not in anthropic_models
+        and model_id not in seen
+    ):
         seen.add(model_id)
         model_info = await Models.get_model_by_id(model_id)
         if not model_info or not model_info.base_model_id:
@@ -964,6 +981,9 @@ async def unload_model(request: Request, form_data: ModelUnloadForm, user=Depend
                 status_code=400,
                 detail=f'Provider "{provider or "default"}" does not support model unloading',
             )
+
+    if model_id in anthropic_models:
+        raise HTTPException(status_code=400, detail='Provider "anthropic" does not support model unloading')
 
     raise HTTPException(status_code=404, detail=f'Model "{model_id}" not found')
 

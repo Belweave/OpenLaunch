@@ -1200,6 +1200,21 @@ async def generate_chat_completion(
         if logit_bias:
             payload['logit_bias'] = json.loads(logit_bias)
 
+    if is_anthropic_url(url) or api_config.get('provider') == 'anthropic':
+        from openlaunch.routers.anthropic import request_anthropic_chat_completion
+
+        anthropic_config = dict(api_config)
+        if is_anthropic_url(url) and api_config.get('provider') != 'anthropic':
+            anthropic_config['auth_type'] = 'api_key'
+        return await request_anthropic_chat_completion(
+            request,
+            payload,
+            user,
+            url,
+            key,
+            anthropic_config,
+        )
+
     headers, cookies = await get_headers_and_cookies(request, url, key, api_config, metadata, user=user)
 
     is_responses = api_config.get('api_type') == 'responses'

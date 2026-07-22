@@ -128,19 +128,25 @@ export const currentChatPage = writable(1);
 export const isLastActiveTab = writable(true);
 export const playingNotificationSound = writable(false);
 
-export type Model = OpenAIModel | OllamaModel;
+export type Model = OpenAIModel | AnthropicModel | OllamaModel;
 
 type BaseModel = {
 	id: string;
 	name: string;
 	info?: ModelConfig;
-	owned_by: 'ollama' | 'openai' | 'arena';
+	owned_by: 'ollama' | 'openai' | 'anthropic' | 'arena';
 };
 
 export interface OpenAIModel extends BaseModel {
 	owned_by: 'openai';
 	external: boolean;
 	source?: string;
+}
+
+export interface AnthropicModel extends BaseModel {
+	owned_by: 'anthropic';
+	external: boolean;
+	anthropic?: Record<string, unknown>;
 }
 
 export interface OllamaModel extends BaseModel {

@@ -20,9 +20,10 @@ from sqlalchemy import JSON, BigInteger, Column, Text, delete, select
 
 log = logging.getLogger(__name__)
 
-API_CONFIG_KEYS = ('openai.api_configs', 'ollama.api_configs')
+API_CONFIG_KEYS = ('openai.api_configs', 'anthropic.api_configs', 'ollama.api_configs')
 DICT_CONFIG_KEY_ALIASES = {
     'openai.api_configs': ('OPENAI_API_CONFIGS',),
+    'anthropic.api_configs': ('ANTHROPIC_API_CONFIGS',),
     'ollama.api_configs': ('OLLAMA_API_CONFIGS',),
     'rag.mineru_params': ('MINERU_PARAMS',),
     'rag.docling_params': ('DOCLING_PARAMS',),
@@ -49,6 +50,8 @@ API_CONFIG_FIELDS = (
     'azure',
     'api_version',
     'extra_params',
+    'anthropic_version',
+    'max_tokens',
 )
 
 
