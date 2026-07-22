@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from typing import Any
 from urllib.parse import quote
+from uuid import uuid4
 
 import httpx
 
@@ -115,6 +117,52 @@ def get_user_client_id(user_id: str) -> str:
     return f"openlaunch-{user_id}"
 
 
+def get_additional_user_client_id(
+    user_id: str, *, username: str | None = None, domain: str | None = None
+) -> str:
+    """Build a retry-safe client ID without exposing the requested address."""
+    if username:
+        address_key = f"{username.strip().lower()}@{(domain or AGENTMAIL_DEFAULT_DOMAIN).strip().lower()}"
+        suffix = hashlib.sha256(address_key.encode()).hexdigest()[:16]
+    else:
+        suffix = uuid4().hex
+    return f"{get_user_client_id(user_id)}-{suffix}"
+
+
+def _is_user_inbox(inbox: dict, user_id: str, mapped_id: str | None) -> bool:
+    metadata = inbox.get("metadata") or {}
+    return bool(
+        inbox.get("inbox_id") == mapped_id
+        or metadata.get("openlaunch_user_id") == user_id
+        or inbox.get("client_id")
+        in {
+            get_user_client_id(user_id),
+            f"openlaunch:{user_id}",  # Legacy records created before client ID validation.
+        }
+    )
+
+
+async def list_user_inboxes(user_id: str) -> list[dict]:
+    """List only inboxes owned by this OpenLaunch user."""
+    mapped_id = await get_mapped_inbox_id(user_id)
+    inboxes: list[dict] = []
+    page_token = None
+    while True:
+        params = {"limit": 100}
+        if page_token:
+            params["page_token"] = page_token
+        response = await agentmail_request("GET", "/v0/inboxes", params=params)
+        payload = response.json()
+        inboxes.extend(
+            inbox
+            for inbox in payload.get("inboxes", [])
+            if _is_user_inbox(inbox, user_id, mapped_id)
+        )
+        page_token = payload.get("next_page_token")
+        if not page_token:
+            return inboxes
+
+
 async def list_agentmail_domains() -> list[dict]:
     domains = [
         {
@@ -162,28 +210,11 @@ async def find_user_inbox(user_id: str) -> dict | None:
                 raise
             await set_mapped_inbox_id(user_id, None)
 
-    page_token = None
-    while True:
-        params = {"limit": 100}
-        if page_token:
-            params["page_token"] = page_token
-        response = await agentmail_request("GET", "/v0/inboxes", params=params)
-        payload = response.json()
-        for inbox in payload.get("inboxes", []):
-            metadata = inbox.get("metadata") or {}
-            if (
-                inbox.get("client_id")
-                in {
-                    get_user_client_id(user_id),
-                    f"openlaunch:{user_id}",  # Legacy discovery for pre-fix records.
-                }
-                or metadata.get("openlaunch_user_id") == user_id
-            ):
-                await set_mapped_inbox_id(user_id, inbox["inbox_id"])
-                return inbox
-        page_token = payload.get("next_page_token")
-        if not page_token:
-            return None
+    inboxes = await list_user_inboxes(user_id)
+    if not inboxes:
+        return None
+    await set_mapped_inbox_id(user_id, inboxes[0]["inbox_id"])
+    return inboxes[0]
 
 
 async def provision_user_inbox(
@@ -214,6 +245,68 @@ async def provision_user_inbox(
     inbox = response.json()
     await set_mapped_inbox_id(user["id"], inbox["inbox_id"])
     return inbox
+
+
+async def create_additional_user_inbox(
+    user: dict,
+    *,
+    username: str | None = None,
+    domain: str | None = None,
+    display_name: str | None = None,
+) -> dict:
+    body: dict[str, Any] = {
+        "client_id": get_additional_user_client_id(
+            user["id"], username=username, domain=domain
+        ),
+        "display_name": display_name or user.get("name") or user.get("email"),
+        "metadata": {
+            "openlaunch_user_id": user["id"],
+            "openlaunch_user_email": user.get("email", ""),
+        },
+    }
+    if username:
+        body["username"] = username.strip()
+    if domain:
+        body["domain"] = domain.strip()
+
+    response = await agentmail_request("POST", "/v0/inboxes", json_body=body)
+    inbox = response.json()
+    await set_mapped_inbox_id(user["id"], inbox["inbox_id"])
+    return inbox
+
+
+async def select_user_inbox(user_id: str, inbox_id: str) -> dict:
+    inbox = next(
+        (
+            item
+            for item in await list_user_inboxes(user_id)
+            if item["inbox_id"] == inbox_id
+        ),
+        None,
+    )
+    if not inbox:
+        raise AgentMailError(404, "This AgentMail inbox is not linked to your account")
+    await set_mapped_inbox_id(user_id, inbox_id)
+    return inbox
+
+
+async def delete_user_inbox(user_id: str, inbox_id: str) -> dict | None:
+    inboxes = await list_user_inboxes(user_id)
+    if not any(item["inbox_id"] == inbox_id for item in inboxes):
+        raise AgentMailError(404, "This AgentMail inbox is not linked to your account")
+
+    active_inbox_id = await get_mapped_inbox_id(user_id)
+    await agentmail_request("DELETE", f'/v0/inboxes/{quote(inbox_id, safe="")}')
+    next_inbox = next(
+        (
+            item
+            for item in inboxes
+            if item["inbox_id"] != inbox_id and item["inbox_id"] == active_inbox_id
+        ),
+        None,
+    ) or next((item for item in inboxes if item["inbox_id"] != inbox_id), None)
+    await set_mapped_inbox_id(user_id, next_inbox["inbox_id"] if next_inbox else None)
+    return next_inbox
 
 
 async def require_user_inbox(user_id: str) -> dict:

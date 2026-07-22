@@ -28,10 +28,24 @@ export const testAgentMailAdminConfig = (token: string) =>
 
 export const getMyAgentMailInbox = (token: string) => request(token, '/me/inbox');
 
+export const getMyAgentMailInboxes = (token: string) => request(token, '/me/inboxes');
+
 export const getMyAgentMailDomains = (token: string) => request(token, '/me/domains');
 
 export const provisionMyAgentMailInbox = (token: string, body: object = {}) =>
 	request(token, '/me/inbox', { method: 'POST', body: JSON.stringify(body) });
+
+export const createMyAgentMailInbox = (token: string, body: object = {}) =>
+	request(token, '/me/inboxes', { method: 'POST', body: JSON.stringify(body) });
+
+export const selectMyAgentMailInbox = (token: string, inboxId: string) =>
+	request(token, '/me/inboxes/select', {
+		method: 'POST',
+		body: JSON.stringify({ inbox_id: inboxId })
+	});
+
+export const deleteMyAgentMailInbox = (token: string, inboxId: string) =>
+	request(token, `/me/inboxes/${encodeURIComponent(inboxId)}`, { method: 'DELETE' });
 
 export const agentMailClient = (
 	token: string,

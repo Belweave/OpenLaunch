@@ -9,11 +9,15 @@ from openlaunch.models.config import Config
 from openlaunch.utils.agentmail import (
     AgentMailError,
     agentmail_request,
+    create_additional_user_inbox,
+    delete_user_inbox,
     find_user_inbox,
     get_agentmail_settings,
     list_agentmail_domains,
+    list_user_inboxes,
     provision_user_inbox,
     require_user_inbox,
+    select_user_inbox,
 )
 from openlaunch.utils.auth import get_admin_user, get_verified_user
 from pydantic import BaseModel
@@ -53,6 +57,10 @@ class ProvisionInboxForm(BaseModel):
     username: str | None = None
     domain: str | None = None
     display_name: str | None = None
+
+
+class SelectInboxForm(BaseModel):
+    inbox_id: str
 
 
 @router.get("/admin/config")
@@ -138,6 +146,68 @@ async def provision_my_agentmail_inbox(
             display_name=form_data.display_name,
         )
         return {"inbox": inbox}
+    except AgentMailError as exc:
+        _raise_agentmail_error(exc)
+
+
+@router.get("/me/inboxes")
+async def get_my_agentmail_inboxes(user=Depends(get_verified_user)):
+    enabled, api_key = await get_agentmail_settings()
+    if not enabled:
+        return {
+            "enabled": False,
+            "configured": bool(api_key),
+            "inbox": None,
+            "inboxes": [],
+        }
+    try:
+        active_inbox = await find_user_inbox(user.id)
+        return {
+            "enabled": True,
+            "configured": bool(api_key),
+            "inbox": active_inbox,
+            "inboxes": await list_user_inboxes(user.id),
+        }
+    except AgentMailError as exc:
+        _raise_agentmail_error(exc)
+
+
+@router.post("/me/inboxes")
+async def create_my_additional_agentmail_inbox(
+    form_data: ProvisionInboxForm, user=Depends(get_verified_user)
+):
+    enabled, _ = await get_agentmail_settings()
+    if not enabled:
+        raise HTTPException(
+            status_code=403, detail="AgentMail email is disabled by the administrator"
+        )
+    try:
+        inbox = await create_additional_user_inbox(
+            user.model_dump(),
+            username=form_data.username,
+            domain=form_data.domain,
+            display_name=form_data.display_name,
+        )
+        return {"inbox": inbox}
+    except AgentMailError as exc:
+        _raise_agentmail_error(exc)
+
+
+@router.post("/me/inboxes/select")
+async def select_my_agentmail_inbox(
+    form_data: SelectInboxForm, user=Depends(get_verified_user)
+):
+    try:
+        return {"inbox": await select_user_inbox(user.id, form_data.inbox_id)}
+    except AgentMailError as exc:
+        _raise_agentmail_error(exc)
+
+
+@router.delete("/me/inboxes/{inbox_id}")
+async def delete_my_agentmail_inbox(inbox_id: str, user=Depends(get_verified_user)):
+    try:
+        next_inbox = await delete_user_inbox(user.id, inbox_id)
+        return {"deleted": True, "inbox": next_inbox}
     except AgentMailError as exc:
         _raise_agentmail_error(exc)
 

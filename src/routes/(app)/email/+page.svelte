@@ -5,11 +5,15 @@
 
 	import {
 		agentMailClient,
+		createMyAgentMailInbox,
+		deleteMyAgentMailInbox,
 		downloadAgentMailFile,
 		getMyAgentMailDomains,
-		getMyAgentMailInbox,
-		provisionMyAgentMailInbox
+		getMyAgentMailInboxes,
+		provisionMyAgentMailInbox,
+		selectMyAgentMailInbox
 	} from '$lib/apis/agentmail';
+	import { showSidebar } from '$lib/stores';
 	import Envelope from '$lib/components/icons/Envelope.svelte';
 	import Refresh from '$lib/components/icons/Refresh.svelte';
 	import Search from '$lib/components/icons/Search.svelte';
@@ -17,9 +21,14 @@
 
 	let status: any = null;
 	let provisioning = false;
+	let managingMailbox = false;
+	let deletingInboxId = '';
 	let preferredUsername = '';
+	let newUsername = '';
 	let domains: any[] = [{ domain: 'agentmail.to', default: true }];
 	let selectedDomain = 'agentmail.to';
+	let newDomain = 'agentmail.to';
+	let showMailboxManager = false;
 	let threads: any[] = [];
 	let drafts: any[] = [];
 	let selected: any = null;
@@ -64,13 +73,11 @@
 	};
 
 	const loadStatus = async () => {
-		status = await getMyAgentMailInbox(localStorage.token).catch((error) => {
+		status = await getMyAgentMailInboxes(localStorage.token).catch((error) => {
 			toast.error(String(error));
-			return { enabled: true, configured: false, inbox: null };
+			return { enabled: true, configured: false, inbox: null, inboxes: [] };
 		});
-		if (status?.inbox) {
-			await loadList();
-		} else if (status?.enabled && status?.configured) {
+		if (status?.enabled && status?.configured) {
 			const result = await getMyAgentMailDomains(localStorage.token).catch((error) => {
 				toast.error(String(error));
 				return { domains };
@@ -79,6 +86,12 @@
 			if (!domains.some((item) => item.domain === selectedDomain)) {
 				selectedDomain = domains[0].domain;
 			}
+			if (!domains.some((item) => item.domain === newDomain)) {
+				newDomain = domains[0].domain;
+			}
+		}
+		if (status?.inbox) {
+			await loadList();
 		}
 	};
 
@@ -89,13 +102,73 @@
 				username: preferredUsername || null,
 				domain: selectedDomain
 			});
-			status = { ...status, inbox: result.inbox };
 			toast.success(`Email ready at ${result.inbox.email}`);
-			await loadList();
+			preferredUsername = '';
+			await loadStatus();
 		} catch (error) {
 			toast.error(String(error));
 		} finally {
 			provisioning = false;
+		}
+	};
+
+	const createAdditionalInbox = async () => {
+		managingMailbox = true;
+		try {
+			const result = await createMyAgentMailInbox(localStorage.token, {
+				username: newUsername || null,
+				domain: newDomain
+			});
+			newUsername = '';
+			toast.success(`Now using ${result.inbox.email}`);
+			await loadStatus();
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			managingMailbox = false;
+		}
+	};
+
+	const switchInbox = async (inboxId: string) => {
+		if (!inboxId || inboxId === status?.inbox?.inbox_id) return;
+		managingMailbox = true;
+		try {
+			const result = await selectMyAgentMailInbox(localStorage.token, inboxId);
+			status = { ...status, inbox: result.inbox };
+			threads = [];
+			drafts = [];
+			selected = null;
+			selectedDraft = null;
+			await loadList();
+			toast.success(`Switched to ${result.inbox.email}`);
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			managingMailbox = false;
+		}
+	};
+
+	const deleteInbox = async (inbox: any) => {
+		if (
+			!window.confirm(
+				`Permanently delete ${inbox.email}? Its messages, drafts, and attachments will be deleted by AgentMail.`
+			)
+		)
+			return;
+		deletingInboxId = inbox.inbox_id;
+		try {
+			await deleteMyAgentMailInbox(localStorage.token, inbox.inbox_id);
+			toast.success(`${inbox.email} deleted`);
+			threads = [];
+			drafts = [];
+			selected = null;
+			selectedDraft = null;
+			await loadStatus();
+			if (!status?.inbox) showMailboxManager = false;
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			deletingInboxId = '';
 		}
 	};
 
@@ -337,7 +410,9 @@
 <svelte:head><title>Email</title></svelte:head>
 
 <div
-	class="flex h-screen min-h-0 w-full bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100"
+	class="flex h-screen max-h-[100dvh] min-h-0 min-w-0 flex-1 overflow-hidden bg-white text-gray-900 transition-width duration-200 ease-in-out dark:bg-gray-900 dark:text-gray-100 {$showSidebar
+		? 'md:max-w-[calc(100%-var(--sidebar-width))]'
+		: ''} max-w-full"
 >
 	{#if status === null}
 		<div class="flex w-full items-center justify-center text-sm text-gray-500">Loading email…</div>
@@ -392,8 +467,28 @@
 				class="mb-4 w-full rounded-xl bg-black px-4 py-2.5 text-sm font-medium text-white dark:bg-white dark:text-black"
 				on:click={startCompose}>Compose</button
 			>
-			<div class="mb-4 truncate px-2 text-xs text-gray-500" title={status.inbox.email}>
-				{status.inbox.email}
+			<div class="mb-4 px-1">
+				<label
+					for="active-email-address"
+					class="mb-1 block px-1 text-[11px] font-medium uppercase tracking-wide text-gray-400"
+					>From address</label
+				>
+				<select
+					id="active-email-address"
+					class="w-full truncate rounded-lg border border-gray-200 bg-transparent px-2 py-2 text-xs outline-none dark:border-gray-700"
+					value={status.inbox.inbox_id}
+					disabled={managingMailbox}
+					aria-label="Active email address"
+					on:change={(event) => switchInbox(event.currentTarget.value)}
+				>
+					{#each status.inboxes ?? [status.inbox] as inbox}
+						<option value={inbox.inbox_id}>{inbox.email}</option>
+					{/each}
+				</select>
+				<button
+					class="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-xs text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
+					on:click={() => (showMailboxManager = true)}>Manage addresses</button
+				>
 			</div>
 			{#each folders as item}
 				<button
@@ -406,12 +501,17 @@
 		</aside>
 
 		<section
-			class="flex w-full max-w-sm shrink-0 flex-col border-r border-gray-100 dark:border-gray-800"
+			class="flex w-full min-w-0 shrink-0 flex-col border-r border-gray-100 dark:border-gray-800 md:w-80 xl:w-96"
 		>
 			<div class="border-b border-gray-100 p-3 dark:border-gray-800">
 				<div class="flex items-center justify-between gap-2">
 					<h1 class="text-lg font-semibold capitalize">{folder === 'all' ? 'All mail' : folder}</h1>
 					<div class="flex gap-1">
+						<button
+							class="rounded-lg px-2 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-800"
+							on:click={() => (showMailboxManager = true)}
+							title="Manage email addresses">Addresses</button
+						>
 						<button
 							class="rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-800 md:hidden"
 							on:click={startCompose}
@@ -605,9 +705,103 @@
 	{/if}
 </div>
 
+{#if showMailboxManager && status?.inbox}
+	<div
+		class="fixed inset-0 z-[110] flex items-center justify-center bg-black/30 p-4 {$showSidebar
+			? 'md:left-[var(--sidebar-width)]'
+			: ''}"
+	>
+		<div
+			class="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-850"
+		>
+			<div
+				class="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4 dark:border-gray-800"
+			>
+				<div>
+					<h2 class="font-semibold">Email addresses</h2>
+					<p class="mt-1 text-xs text-gray-500">
+						AgentMail addresses cannot be renamed. Create another address and switch to it instead.
+					</p>
+				</div>
+				<button
+					class="shrink-0 rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800"
+					on:click={() => (showMailboxManager = false)}
+					aria-label="Close address manager"><XMark className="size-5" /></button
+				>
+			</div>
+
+			<div class="min-h-0 flex-1 overflow-y-auto p-5">
+				<div class="space-y-2">
+					{#each status.inboxes ?? [status.inbox] as inbox}
+						<div
+							class="flex items-center gap-3 rounded-xl border p-3 {inbox.inbox_id ===
+							status.inbox.inbox_id
+								? 'border-gray-900 bg-gray-50 dark:border-gray-100 dark:bg-gray-800'
+								: 'border-gray-200 dark:border-gray-700'}"
+						>
+							<button
+								class="min-w-0 flex-1 text-left"
+								disabled={managingMailbox || deletingInboxId !== ''}
+								on:click={() => switchInbox(inbox.inbox_id)}
+							>
+								<div class="truncate text-sm font-medium">{inbox.email}</div>
+								<div class="mt-0.5 text-xs text-gray-500">
+									{inbox.inbox_id === status.inbox.inbox_id
+										? 'Active address'
+										: 'Switch to this address'}
+								</div>
+							</button>
+							<button
+								class="shrink-0 rounded-lg px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950/30"
+								disabled={deletingInboxId !== '' || managingMailbox}
+								on:click={() => deleteInbox(inbox)}
+							>
+								{deletingInboxId === inbox.inbox_id ? 'Deleting…' : 'Delete'}
+							</button>
+						</div>
+					{/each}
+				</div>
+
+				<div class="mt-6 border-t border-gray-100 pt-5 dark:border-gray-800">
+					<h3 class="text-sm font-medium">Create another address</h3>
+					<p class="mt-1 text-xs text-gray-500">The new address becomes active immediately.</p>
+					<div
+						class="mt-3 flex items-center overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700"
+					>
+						<input
+							class="min-w-0 flex-1 bg-transparent px-4 py-2.5 text-sm outline-none"
+							placeholder="preferred-name"
+							bind:value={newUsername}
+						/>
+						<span class="text-sm text-gray-400">@</span>
+						<select
+							class="max-w-[50%] bg-transparent py-2.5 pr-4 text-sm outline-none"
+							bind:value={newDomain}
+							aria-label="New email domain"
+						>
+							{#each domains as item}
+								<option value={item.domain}>{item.domain}</option>
+							{/each}
+						</select>
+					</div>
+					<button
+						class="mt-3 w-full rounded-xl bg-black px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-black"
+						disabled={managingMailbox || deletingInboxId !== ''}
+						on:click={createAdditionalInbox}
+					>
+						{managingMailbox ? 'Working…' : 'Create and switch'}
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
 {#if showCompose}
 	<div
-		class="fixed inset-0 z-[100] flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-6"
+		class="fixed inset-0 z-[100] flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-6 {$showSidebar
+			? 'md:left-[var(--sidebar-width)]'
+			: ''}"
 	>
 		<div
 			class="flex max-h-[92vh] w-full max-w-2xl flex-col rounded-t-2xl bg-white shadow-2xl dark:bg-gray-850 sm:rounded-2xl"

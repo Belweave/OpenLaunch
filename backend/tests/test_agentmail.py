@@ -9,10 +9,14 @@ from openlaunch.tools.agentmail import agentmail_client
 from openlaunch.utils.agentmail import (
     AgentMailError,
     agentmail_request,
+    delete_user_inbox,
     find_user_inbox,
+    get_additional_user_client_id,
     get_user_client_id,
     list_agentmail_domains,
+    list_user_inboxes,
     provision_user_inbox,
+    select_user_inbox,
 )
 
 
@@ -109,6 +113,75 @@ class AgentMailClientTests(unittest.IsolatedAsyncioTestCase):
     def test_generated_client_id_uses_only_agentmail_safe_characters(self):
         self.assertEqual(get_user_client_id("user-1_ABC"), "openlaunch-user-1_ABC")
         self.assertNotIn(":", get_user_client_id("user-1"))
+
+    def test_additional_client_id_is_stable_for_requested_address(self):
+        first = get_additional_user_client_id(
+            "user-1", username="Support", domain="example.com"
+        )
+        second = get_additional_user_client_id(
+            "user-1", username="support", domain="example.com"
+        )
+        self.assertEqual(first, second)
+        self.assertTrue(first.startswith("openlaunch-user-1-"))
+
+    @patch("openlaunch.utils.agentmail.agentmail_request", new_callable=AsyncMock)
+    @patch("openlaunch.utils.agentmail.get_mapped_inbox_id", new_callable=AsyncMock)
+    async def test_lists_only_inboxes_linked_to_user(self, get_mapping, request):
+        get_mapping.return_value = "mapped@example.com"
+        request.return_value = FakeResponse(
+            {
+                "inboxes": [
+                    {"inbox_id": "mapped@example.com"},
+                    {
+                        "inbox_id": "owned@example.com",
+                        "metadata": {"openlaunch_user_id": "user-1"},
+                    },
+                    {
+                        "inbox_id": "foreign@example.com",
+                        "metadata": {"openlaunch_user_id": "user-2"},
+                    },
+                ]
+            }
+        )
+
+        inboxes = await list_user_inboxes("user-1")
+
+        self.assertEqual(
+            [inbox["inbox_id"] for inbox in inboxes],
+            ["mapped@example.com", "owned@example.com"],
+        )
+
+    @patch("openlaunch.utils.agentmail.set_mapped_inbox_id", new_callable=AsyncMock)
+    @patch("openlaunch.utils.agentmail.list_user_inboxes", new_callable=AsyncMock)
+    async def test_selects_only_linked_inbox(self, list_inboxes, set_mapping):
+        list_inboxes.return_value = [{"inbox_id": "owned@example.com"}]
+
+        inbox = await select_user_inbox("user-1", "owned@example.com")
+
+        self.assertEqual(inbox["inbox_id"], "owned@example.com")
+        set_mapping.assert_awaited_once_with("user-1", "owned@example.com")
+
+        with self.assertRaises(AgentMailError):
+            await select_user_inbox("user-1", "foreign@example.com")
+
+    @patch("openlaunch.utils.agentmail.set_mapped_inbox_id", new_callable=AsyncMock)
+    @patch("openlaunch.utils.agentmail.get_mapped_inbox_id", new_callable=AsyncMock)
+    @patch("openlaunch.utils.agentmail.agentmail_request", new_callable=AsyncMock)
+    @patch("openlaunch.utils.agentmail.list_user_inboxes", new_callable=AsyncMock)
+    async def test_delete_switches_to_remaining_inbox(
+        self, list_inboxes, request, get_mapping, set_mapping
+    ):
+        get_mapping.return_value = "first@example.com"
+        list_inboxes.return_value = [
+            {"inbox_id": "first@example.com"},
+            {"inbox_id": "second@example.com"},
+        ]
+
+        next_inbox = await delete_user_inbox("user-1", "first@example.com")
+
+        self.assertEqual(next_inbox["inbox_id"], "second@example.com")
+        request.assert_awaited_once_with("DELETE", "/v0/inboxes/first%40example.com")
+        set_mapping.assert_awaited_once_with("user-1", "second@example.com")
 
     @patch("openlaunch.utils.agentmail.agentmail_request", new_callable=AsyncMock)
     async def test_lists_default_and_account_domains(self, request):
