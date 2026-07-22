@@ -155,6 +155,39 @@ class AnthropicConversionTests(unittest.TestCase):
         self.assertEqual(result['tool_choice'], {'type': 'any'})
         self.assertEqual(result['stop_sequences'], ['done'])
 
+    def test_groups_parallel_tool_results_into_one_user_turn(self):
+        result = convert_openai_to_anthropic_payload(
+            {
+                'model': 'claude-test',
+                'messages': [
+                    {'role': 'user', 'content': 'Use both tools.'},
+                    {
+                        'role': 'assistant',
+                        'content': '',
+                        'tool_calls': [
+                            {
+                                'id': 'call_search',
+                                'type': 'function',
+                                'function': {'name': 'search_web', 'arguments': '{}'},
+                            },
+                            {
+                                'id': 'call_code',
+                                'type': 'function',
+                                'function': {'name': 'execute_code', 'arguments': '{}'},
+                            },
+                        ],
+                    },
+                    {'role': 'tool', 'tool_call_id': 'call_search', 'content': 'search result'},
+                    {'role': 'tool', 'tool_call_id': 'call_code', 'content': 'code result'},
+                ],
+            }
+        )
+
+        self.assertEqual([message['role'] for message in result['messages']], ['user', 'assistant', 'user'])
+        tool_results = result['messages'][2]['content']
+        self.assertEqual([block['tool_use_id'] for block in tool_results], ['call_search', 'call_code'])
+        self.assertTrue(all(block['type'] == 'tool_result' for block in tool_results))
+
     def test_converts_response_tools_usage_and_typed_errors(self):
         result = convert_anthropic_to_openai_response(
             {

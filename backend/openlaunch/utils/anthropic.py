@@ -207,6 +207,26 @@ def _openai_content_to_anthropic(content) -> str | list:
     return blocks
 
 
+def _anthropic_content_blocks(content) -> list:
+    """Return content in the block form needed when adjacent turns are merged."""
+    if isinstance(content, list):
+        return content
+    if content in (None, ''):
+        return []
+    return [{'type': 'text', 'text': str(content)}]
+
+
+def _append_anthropic_message(messages: list, role: str, content) -> None:
+    """Append a turn, coalescing adjacent roles as the Messages API specifies."""
+    if messages and messages[-1].get('role') == role:
+        messages[-1]['content'] = [
+            *_anthropic_content_blocks(messages[-1].get('content')),
+            *_anthropic_content_blocks(content),
+        ]
+        return
+    messages.append({'role': role, 'content': content})
+
+
 def convert_openai_to_anthropic_payload(openai_payload: dict, default_max_tokens: int = 4096) -> dict:
     """Convert OpenLaunch's OpenAI-shaped request into a native Messages request."""
     max_tokens = openai_payload.get('max_completion_tokens') or openai_payload.get('max_tokens') or default_max_tokens
@@ -253,31 +273,29 @@ def convert_openai_to_anthropic_payload(openai_payload: dict, default_max_tokens
                         'input': arguments if isinstance(arguments, dict) else {},
                     }
                 )
-            payload['messages'].append({'role': 'assistant', 'content': blocks or ''})
+            _append_anthropic_message(payload['messages'], 'assistant', blocks or '')
             continue
 
         if role == 'tool':
             tool_content = _openai_content_to_anthropic(content)
-            payload['messages'].append(
-                {
-                    'role': 'user',
-                    'content': [
-                        {
-                            'type': 'tool_result',
-                            'tool_use_id': message.get('tool_call_id', ''),
-                            'content': tool_content,
-                            **({'is_error': True} if message.get('is_error') else {}),
-                        }
-                    ],
-                }
+            _append_anthropic_message(
+                payload['messages'],
+                'user',
+                [
+                    {
+                        'type': 'tool_result',
+                        'tool_use_id': message.get('tool_call_id', ''),
+                        'content': tool_content,
+                        **({'is_error': True} if message.get('is_error') else {}),
+                    }
+                ],
             )
             continue
 
-        payload['messages'].append(
-            {
-                'role': 'user',
-                'content': _openai_content_to_anthropic(content),
-            }
+        _append_anthropic_message(
+            payload['messages'],
+            'user',
+            _openai_content_to_anthropic(content),
         )
 
     if system_blocks:
