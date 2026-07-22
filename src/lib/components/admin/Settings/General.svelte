@@ -185,7 +185,7 @@
 							<div class="flex min-w-0 flex-col gap-2">
 								<div class="text-xs text-gray-500 dark:text-gray-400">
 									{$i18n.t(
-										'Upload a PNG, JPEG, or WebP image with equal width and height. Maximum size: 2 MB.'
+										'Upload a square PNG, JPEG, or WebP image (maximum 2 MB). It is used throughout the app, including the loading splash and browser icon.'
 									)}
 								</div>
 								<div class="flex gap-2">

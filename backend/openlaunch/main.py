@@ -217,7 +217,7 @@ from openlaunch.utils.auth import (
     get_license_data,
     get_verified_user,
 )
-from openlaunch.utils.branding import normalize_app_name
+from openlaunch.utils.branding import get_logo_fallback_filename, normalize_app_name
 from openlaunch.utils.chat import (
     chat_completed as chat_completed_handler,
 )
@@ -2094,8 +2094,9 @@ async def get_app_logo(request: Request):
         except (ValueError, binascii.Error):
             pass
 
+    fallback_filename = get_logo_fallback_filename(request.query_params.get('variant'))
     return FileResponse(
-        f'{STATIC_DIR}/favicon.png',
+        f'{STATIC_DIR}/{fallback_filename}',
         media_type='image/png',
         headers={'Cache-Control': cache_control},
     )
@@ -2502,6 +2503,8 @@ async def get_manifest_json():
             r.raise_for_status()
             return await r.json()
     else:
+        logo_updated_at = await Config.get('ui.logo_updated_at', 0) or 0
+        logo_url = f'/api/config/logo?v={logo_updated_at}'
         return {
             'name': app.state.OPENLAUNCH_NAME,
             'short_name': app.state.OPENLAUNCH_NAME,
@@ -2511,15 +2514,11 @@ async def get_manifest_json():
             'background_color': '#343541',
             'icons': [
                 {
-                    'src': '/static/logo.png',
-                    'type': 'image/png',
-                    'sizes': '500x500',
+                    'src': logo_url,
                     'purpose': 'any',
                 },
                 {
-                    'src': '/static/logo.png',
-                    'type': 'image/png',
-                    'sizes': '500x500',
+                    'src': logo_url,
                     'purpose': 'maskable',
                 },
             ],
@@ -2534,13 +2533,15 @@ async def get_manifest_json():
 @app.get('/opensearch.xml')
 async def get_opensearch_xml():
     openlaunch_url = await Config.get('openlaunch.url')
+    logo_updated_at = await Config.get('ui.logo_updated_at', 0) or 0
     app_name = escape_xml(app.state.OPENLAUNCH_NAME)
+    logo_url = f'{openlaunch_url}/api/config/logo?v={logo_updated_at}'
     xml_content = rf"""
     <OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/" xmlns:moz="http://www.mozilla.org/2006/browser/search/">
     <ShortName>{app_name}</ShortName>
     <Description>Search {app_name}</Description>
     <InputEncoding>UTF-8</InputEncoding>
-    <Image width="16" height="16" type="image/x-icon">{openlaunch_url}/static/favicon.png</Image>
+    <Image width="16" height="16">{logo_url}</Image>
     <Url type="text/html" method="get" template="{openlaunch_url}/?q={'{searchTerms}'}"/>
     <moz:SearchForm>{openlaunch_url}</moz:SearchForm>
     </OpenSearchDescription>

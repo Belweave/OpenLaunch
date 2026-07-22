@@ -2,25 +2,12 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<link rel="icon" type="image/png" href="/static/favicon.png" crossorigin="use-credentials" />
-		<link
-			rel="icon"
-			type="image/png"
-			href="/static/favicon-96x96.png"
-			sizes="96x96"
-			crossorigin="use-credentials"
-		/>
-		<link
-			rel="icon"
-			type="image/svg+xml"
-			href="/static/favicon.svg"
-			crossorigin="use-credentials"
-		/>
-		<link rel="shortcut icon" href="/static/favicon.ico" crossorigin="use-credentials" />
+		<link rel="icon" href="/api/config/logo" crossorigin="use-credentials" />
+		<link rel="shortcut icon" href="/api/config/logo" crossorigin="use-credentials" />
 		<link
 			rel="apple-touch-icon"
 			sizes="180x180"
-			href="/static/apple-touch-icon.png"
+			href="/api/config/logo?variant=apple-touch"
 			crossorigin="use-credentials"
 		/>
 		<link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
@@ -72,8 +59,8 @@
 				}
 
 				const preloadHref = document.documentElement.classList.contains('dark')
-					? '/static/splash-dark.png'
-					: '/static/splash.png';
+					? '/api/config/logo?variant=splash-dark'
+					: '/api/config/logo?variant=splash';
 				const preload = document.createElement('link');
 				preload.rel = 'preload';
 				preload.as = 'image';
@@ -102,7 +89,9 @@
 					'position: absolute; width: auto; height: 6rem; top: 44%; left: 50%; transform: translateX(-50%); display:block;';
 				logo.loading = 'eager';
 				logo.fetchPriority = 'high';
-				logo.src = isDarkMode ? '/static/splash-dark.png' : '/static/splash.png';
+				logo.src = isDarkMode
+					? '/api/config/logo?variant=splash-dark'
+					: '/api/config/logo?variant=splash';
 
 				document.addEventListener('DOMContentLoaded', function () {
 					const splash = document.getElementById('splash-screen');
@@ -150,7 +139,7 @@
 				<img
 					id="logo-her"
 					style="width: auto; height: 13rem"
-					src="/static/splash.png"
+					src="/api/config/logo?variant=splash-dark"
 					loading="eager"
 					fetchpriority="high"
 					class="animate-pulse-fast"
@@ -225,7 +214,6 @@
 
 		html.her #logo-her {
 			display: block;
-			filter: invert(1);
 		}
 
 		html.her #progress-background {

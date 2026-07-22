@@ -3,7 +3,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from openlaunch.routers.auths import AdminConfig, update_admin_config
-from openlaunch.utils.branding import APP_NAME_MAX_LENGTH, normalize_app_name
+from openlaunch.utils.branding import (
+    APP_NAME_MAX_LENGTH,
+    get_logo_fallback_filename,
+    normalize_app_name,
+)
 from pydantic import ValidationError
 
 
@@ -51,6 +55,17 @@ class AppNameValidationTests(unittest.TestCase):
         for name in ('   ', 'Acme\nAI', 'x' * (APP_NAME_MAX_LENGTH + 1)):
             with self.subTest(name=repr(name)), self.assertRaises((ValueError, ValidationError)):
                 admin_config(APP_NAME=name)
+
+
+class LogoFallbackTests(unittest.TestCase):
+    def test_known_variants_preserve_the_bundled_theme_defaults(self):
+        self.assertEqual(get_logo_fallback_filename('splash'), 'splash.png')
+        self.assertEqual(get_logo_fallback_filename('splash-dark'), 'splash-dark.png')
+        self.assertEqual(get_logo_fallback_filename('apple-touch'), 'apple-touch-icon.png')
+
+    def test_unknown_variants_cannot_select_arbitrary_files(self):
+        self.assertEqual(get_logo_fallback_filename('../../config.py'), 'favicon.png')
+        self.assertEqual(get_logo_fallback_filename(None), 'favicon.png')
 
 
 class AppNameUpdateTests(unittest.IsolatedAsyncioTestCase):
